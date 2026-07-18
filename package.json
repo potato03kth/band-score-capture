@@ -1,0 +1,17 @@
+{
+  "name": "band-score-capture",
+  "version": "0.1.0",
+  "description": "Naver Band class participation acquisition + scoring (M1: acquisition)",
+  "private": true,
+  "main": "acquire/main.js",
+  "scripts": {
+    "start": "electron .",
+    "acquire": "electron ."
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}
