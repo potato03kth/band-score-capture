@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git config *)",
+      "Bash(npm -v)",
+      "Bash(npm install *)",
+      "Bash(node -e ' *)",
+      "Bash(rm -rf input logs)",
+      "Bash(npx electron *)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(tee /tmp/electron_run.log)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
