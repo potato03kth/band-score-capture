@@ -1,0 +1,52 @@
+// config/config.jsonc — 개발자/조교 전용. 교수는 열지 않는다.
+// 측정기간·총점상한·대상밴드·실행모드는 여기 없다(교수가 input/1_설정.xlsx에서 입력).
+// .jsonc: 주석 + 트레일링 콤마 허용. lib/config.js가 걷어내고 JSON.parse.
+// 값 출처: 정찰(M0, doc/recon-findings.md) 관측.
+{
+  // ── 1) API 도메인 (데이터/배치 분리) ────────────────────────────
+  "apiDomain": "api-kr.band.us",
+  "batchApiDomain": "bapi-kr.band.us",
+
+  // ── 2) 인터셉트 대상 엔드포인트 (replay 아님! 응답 가로채기) ──────
+  //     인증은 요청별 sjcl 서명이라 재요청 불가 → preload가 앱 XHR/fetch 응답을 캡처.
+  "endpoints": {
+    "feedList": "get_posts_and_announcements",
+    "postDetail": "get_post",
+    "commentList": "get_comments",
+    "memberList": "get_members_of_band"
+  },
+
+  // ── 3) 역할 user_no: 정찰에서 식별 (전역 숫자 ID, 크로스밴드 동일 확정) ──
+  "roles": {
+    "professorUserNos": [15222358],
+    "taUserNos": [84880771]
+  },
+
+  // ── 4) 과제 머리말 정규식: 선두 앵커 필수(오탐 방지) ──────────────
+  "assignmentPrefixRegex": "^\\[과제\\d+\\]",
+
+  // ── 5) 저속 수집 페이싱: 사람이 읽는 속도 ────────────────────────
+  //     ⚠️ 대댓글 nested 조회로 호출 수 급증 → 세션 분할·야간 배치 고려.
+  "pacing": {
+    "minDelayMs": 300,
+    "maxDelayMs": 2000,
+    "maxScrollAttemptsPerPost": 40,
+    "maxFeedScrollAttempts": 4000,
+    "maxItemsPerRun": 0,
+    "delayBetweenBandsMs": 5000
+  },
+
+  // ── 6) 백필: 시작일이 과거면 피드를 과거로 되감음 ────────────────
+  "backfill": { "enabled": true },
+
+  // ── 7) 세션 파티션 (조교 1회 수동 로그인, 이후 재사용) ────────────
+  "session": { "partition": "persist:band-capture" },
+
+  // ── 8) 경로: 기본값이면 생략 가능 ────────────────────────────────
+  "paths": {
+    "input": "input",
+    "raw": "data/raw",
+    "out": "out",
+    "logs": "logs"
+  }
+}
