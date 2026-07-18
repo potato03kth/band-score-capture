@@ -1,0 +1,7 @@
+node_modules/
+
+# PII / 원천 데이터 / 산출물 / 로그 — 커밋 금지
+input/
+data/
+out/
+logs/
