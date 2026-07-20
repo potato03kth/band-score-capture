@@ -592,9 +592,9 @@ band-score-capture/
 
 ### H-3. 구현 8단계 (Sonnet 1세션 실행 가능 크기로 분할, 순서대로 진행)
 
-> 진행 현황(2026-07-21): Phase 0~5 완료·커밋됨(`1a09479`, `578858d`, `45319dc`, `eadd3ef`,
-> `4070393`, `5d2aea0` — 다음 세션은 **Phase 6**부터 시작). 각 완료 phase는 `npm test` 전체
-> 통과 상태로 남겨뒀다(현재 95건).
+> 진행 현황(2026-07-21): Phase 0~6 완료·커밋됨(`1a09479`, `578858d`, `45319dc`, `eadd3ef`,
+> `4070393`, `5d2aea0`, Phase 6 커밋 — 다음 세션은 **Phase 7**부터 시작). 각 완료 phase는
+> `npm test` 전체 통과 상태로 남겨뒀다(현재 116건).
 
 - ~~**Phase 0 — 테스트 인프라.**~~ 완료. `package.json`에 `"test": "node --test score lib"` 추가.
   `score/`·`lib/` 기존 로직(parser·rules·roster·scorer·csv·xlsx·settings) 회귀 방지 베이스라인
@@ -617,13 +617,25 @@ band-score-capture/
   `collectCandidateMembers`의 각 후보에 붙임. `lib/xlsx.js`의 `2_로스터.xlsx` 템플릿에
   "최초활동(참고용)"·"최신활동(참고용)" 컬럼 추가(실명↔학번 사이, 학번 칸은 4번째→6번째 열로
   밀림 — `loadRosterMapping`의 읽기 인덱스도 갱신됨). 테스트로 다건/0건 유저 케이스 모두 커버.
-- **Phase 6 — 부적합 데이터 확인 엑셀 + 채점 게이트(5개 하위단계, 다음 작업).**
-  - 6-1 `scripts/list_incomplete_gaps.js`의 CSV 로직을 엑셀 워크북 생성으로 이전(3섹션: 게시글총수/게시글댓글/학생댓글)
-  - 6-2 "학생댓글" 시트에 SUMIF류 수식으로 실시간 합산 계산기 컬럼
-  - 6-3 되읽기: manual_value 미기입 잔존 여부 판단 함수(`score/gaps.js` 신규)
-  - 6-4 `score/index.js`에 게이트: 미해결 시 채점 거부 + 안내, 해결 시 manual_value를 활동 레코드에 반영 후 진행
-  - 6-5 엔드투엔드 검증: 미해결→거부→채움→재실행→반영까지 전체 시나리오
-- **Phase 7 — 파일명/폴더 정리.** `out/verify/*` 이름 명시화, 부적합 데이터 확인 엑셀 `input/`으로 이전. 검증:
-  이름만으로 용도 파악 가능한지 리뷰(자동화 불필요).
+- ~~**Phase 6 — 부적합 데이터 확인 엑셀 + 채점 게이트(5개 하위단계).**~~ 완료. `score/gaps.js`
+  신규(로딩: `loadBandGaps`/`loadMemberCommentComparison`, 변환: `collectGapSections`, 생성/게이트:
+  `ensureGapsWorkbook`/`readGapsResolution`, 보정: `applyMemberCommentCorrections`/
+  `applyBandPostCountOverrides`). `lib/xlsx.js`에 `createGapsTemplate`(3시트: 게시글총수/
+  게시글댓글/학생댓글, manual_value·note 노란칸, "학생댓글" 시트에 IF 수식 반영값 컬럼 +
+  하단 SUM 합계행). `score/index.js`에 게이트 연결(설정 로드 직후, 미해결 시 process.exit(1)).
+  **설계 결정(6-4): 게시글총수/게시글댓글 보정은 특정 학생에게 귀속할 근거가 없어(빠진 글/댓글을
+  누가 썼는지 원본 데이터에 없음) 점수에 반영하지 않는다 — 게시글총수만 밴드요약 시트의
+  캡처된 게시글수를 덮어쓰고, 게시글댓글은 게이트 확인(사람이 봤다는 사실)만 요구한다. 학생댓글
+  보정만 유일하게 user_no가 있어 commentCount/activeDays에 직접 반영되며, 활동일수가 0이던
+  학생이 확인된 활동이 있으면(delta>0) 최소 1일로 끌어올리고(정확한 날짜 복원 불가 - 보수적
+  최소값), delta<0(과대측정 의심)은 활동일수를 깎지 않는다(근거 없는 불이익 방지).** 감사
+  레코드에 "수동 보정(사유: ...)" placeholder 삽입으로 감사근거 유지. `scripts/list_incomplete_gaps.js`·
+  `scripts/verify_member_comment_counts.js`는 `score/gaps.js`의 로더를 재사용하도록 리팩터(로직
+  중복 제거, 개발자 진단 도구로는 유지). 테스트: `lib/xlsx.test.js`(`createGapsTemplate` 3건),
+  `score/gaps.test.js`(신규, 18건 — 로딩/섹션 변환/게이트 생성·판정/보정 적용/엔드투엔드 시나리오
+  전부 커버). `npm test` 116건 전부 통과.
+- **Phase 7 — 파일명/폴더 정리(다음 작업).** `out/verify/*` 이름 명시화, 부적합 데이터 확인 엑셀
+  `input/`으로 이전(이미 `input/부적합_데이터_확인.xlsx`로 구현됨 — Phase 7에서는 `out/verify/*`
+  산출물 이름만 정리하면 됨). 검증: 이름만으로 용도 파악 가능한지 리뷰(자동화 불필요).
 - **Phase 8 — `score_logic.xlsx` (최하위 우선순위).** 신규 템플릿 + `score/rules.js`/`scorer.js` 파라미터화. 검증:
   기본값일 때 Phase 0 베이스라인 테스트와 완전히 동일한 점수 나오는지 회귀 확인, 값 변경 시 정확히 반영되는지.
