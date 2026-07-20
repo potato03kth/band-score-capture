@@ -120,6 +120,7 @@ function createInterceptor({ writer, bandId, logger = console, tracer = null }) 
 
     if (kind === 'feedList') handleFeedList(url, data);
     else if (kind === 'postDetail') handlePostDetail(url, data);
+    else if (kind === 'announcementDetail') handleAnnouncementDetail(url, data);
     else if (kind === 'commentList') handleCommentList(url, data);
     else if (kind === 'memberList') handleMemberList(url, data);
   }
@@ -147,6 +148,18 @@ function createInterceptor({ writer, bandId, logger = console, tracer = null }) 
     if (!post || post.post_no == null) return;
     const { isNew } = writer.writePost(post, { sourceUrl: url });
     emit('postDetail', { bandId, url, post, isNew });
+  }
+
+  // §28-9(2026-07-20 실기동, 4분반): 모달 순회 중 .btnNextPost가 다음 "글"이 아니라 공지사항
+  // (get_announcement)으로 넘어가는 경우가 실측 확인됐다 - get_post가 아니므로 postDetail이
+  // 절대 emit 안 되고, collector의 waitForEvent가 타임아웃돼 순회 전체가 중단됐다(51/98건에서
+  // 조기 종료). 공지사항 자체를 raw 데이터로 적재할 필요는 없고(피드 카운트 단계에서도
+  // data-viewname="DAnnouncementItemView"로 이미 제외 대상), collector가 "이건 글이 아니라
+  // 건너뛰어야 한다"는 걸 알 수 있도록 이벤트만 emit한다.
+  function handleAnnouncementDetail(url, data) {
+    const params = endpoints.parseQueryParams(url);
+    const announcementId = params.announcement_id != null ? params.announcement_id : (data && data.announcement_id);
+    emit('announcementDetail', { bandId, url, announcementId });
   }
 
   function handleCommentList(url, data) {

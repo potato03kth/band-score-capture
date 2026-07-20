@@ -22,19 +22,21 @@ fixes there were already tried and reverted.
 ## Start here for the next work session
 
 **`doc/next-session-prompt.md` is the literal next prompt to paste in.** As of
-2026-07-20 end of session, §27's blockers (event-bus double-consumption
-regression, and three per-member comment-count verification bugs: comment
-tab not switching, no wait-for-load, member list not scrolled) are all fixed
-**and re-verified live at full 57-member scale** — see
-`doc/m1-live-findings.md` §28 for the full story, including two dead-end
-attempts (a URL hard-navigation fix that silently broke comment pagination,
-and a "scroll once, reuse coordinates" optimization that turned out to be
-invalid because the list DOM resets on back-navigation). M1 acquire's core
-data-accuracy verification is effectively done. The only open item is a
-one-off "post walk stopped early at 14 posts instead of ~53-61" incident
-(§28-7) that hasn't recurred yet — watch for it, don't chase it speculatively
-unless it repeats. Changes are **uncommitted** — confirm with the user before
-committing.
+2026-07-20 end of session, §27's blockers are fixed, plus two more bugs found
+via a combined 2-band (3분반+4분반) live test: `.btnNextPost` walking into an
+announcement instead of the next post (silently truncated the walk), and a
+`commentPage` double-emit bug (same class as §27-1's `postDetail` one) that
+was causing false-positive gap reports in `incomplete_gaps.json` — the raw
+ndjson itself was actually complete all along, since `writer.writeComment`
+persists unconditionally in the interceptor regardless of collector.js's
+consumption bookkeeping. See `doc/m1-live-findings.md` §28 for the full
+story (§28-9 announcement fix, §28-10 the double-emit/false-positive-gap
+finding). All fixes verified across 3 repeated live runs on both bands:
+0 duplicate event processing, `feedExhausted:true`, gap counts down to 3
+and 1 (from 12 and 4), member verification 57/57 and 56/56. M1 acquire's
+core data-accuracy verification is done. Changes are **committed**
+(commit `1041e82` plus the announcement/drain fixes) — verify with
+`git log` at session start.
 
 ## Working style — lessons paid for with real restarts, don't relearn them
 

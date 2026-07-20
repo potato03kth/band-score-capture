@@ -520,6 +520,37 @@ function inMeasureRange(createdAtMs, settings) {
 // scrollThroughModal로 모달을 끝까지 훑어 밴드가 필요한 요청을 스스로 쏘게 만든다.
 // 모달을 열거나 닫는 책임은 호출자(walkPostsViaModal)에게 있다 — 다음 글로 넘어갈 때 모달을
 // 다시 열 필요 없이 그대로 이어서 쓰기 때문이다.
+// §28-10(2026-07-20 실기동, 4분반): "더보기" 클릭 한 번에 밴드가 commentPage를 두 번 emit하는
+// 경우가 실측 확인됐다(하나는 빈 중복, 하나는 진짜 페이지 - post_no=91 실측: 20+20+0으로
+// 40개에서 멈춤, 진짜였던 11개짜리 마지막 페이지가 유실됨 - post.comment_count 필드도 마침
+// 40으로 어긋나 있어 topLevelGap 안전망에도 안 걸리는 조용한 결손이었다). §27-1의 postDetail
+// 이중 emit과 같은 클래스의 버그. 한 번의 "더보기" 사이클에서 이미 도착한 commentPage를 전부
+// 드레인해 병합한다(comment_id 기준 Map이라 중복 병합은 안전).
+async function drainCommentPages(interceptor, postNo, timeoutMs, label) {
+  const pages = [];
+  const first = await waitForEvent(
+    interceptor,
+    'commentPage',
+    (e) => String(e.postNo) === String(postNo) && e.contentType === 'post',
+    timeoutMs,
+    `${label}:first`
+  );
+  if (!first) return pages;
+  pages.push(first);
+  for (;;) {
+    const more = await waitForEvent(
+      interceptor,
+      'commentPage',
+      (e) => String(e.postNo) === String(postNo) && e.contentType === 'post',
+      400,
+      `${label}:drain`
+    );
+    if (!more) break;
+    pages.push(more);
+  }
+  return pages;
+}
+
 async function collectCommentsInOpenModal(win, interceptor, writer, post, { pacing, logger }) {
   const postNo = post.post_no;
   const topByNo = new Map();
@@ -538,13 +569,11 @@ async function collectCommentsInOpenModal(win, interceptor, writer, post, { paci
   const trace = (interceptor.trace && interceptor.trace.record) ? interceptor.trace : { record: () => {} };
 
   for (let attempt = 0; attempt < (pacing.maxScrollAttemptsPerPost || 40); attempt++) {
-    const page = await waitForEvent(
-      interceptor,
-      'commentPage',
-      (e) => String(e.postNo) === String(postNo) && e.contentType === 'post',
-      perAttemptTimeout,
-      `commentPage:postNo=${postNo}:attempt=${attempt}`
-    );
+    const pages = await drainCommentPages(interceptor, postNo, perAttemptTimeout, `commentPage:postNo=${postNo}:attempt=${attempt}`);
+    if (pages.length > 1) {
+      trace.record({ phase: 'drainCommentPages', postNo, attempt, drainedCount: pages.length, counts: pages.map((p) => p.count) });
+    }
+    const page = pages.length ? pages[pages.length - 1] : null;
     if (!page) {
       noProgressStreak++;
       if (noProgressStreak >= maxNoProgress) {
@@ -588,8 +617,10 @@ async function collectCommentsInOpenModal(win, interceptor, writer, post, { paci
     }
     noProgressStreak = 0;
     sawAny = true;
-    for (const { comment } of page.comments) {
-      topByNo.set(String(comment.comment_id), comment);
+    for (const p of pages) {
+      for (const { comment } of p.comments) {
+        topByNo.set(String(comment.comment_id), comment);
+      }
     }
     // §20: previousParams보다 `.moreComment` 존재 여부를 완결 신호로 우선한다 — API 커서는
     // "더 있음"이라고 해도 밴드 자체 UI가 트리거를 안 띄우면(댓글 삭제 등으로 밴드 쪽
@@ -762,6 +793,28 @@ async function countTotalPostsViaFeedScroll(win, { trace, maxSteps = 200, deltaY
 // 넘기며 각 글의 상세·댓글을 캡처한다. 완료 판정: ①`.btnNextPost`가 사라짐(가장 오래된 글 도달)
 // 또는 ②현재 글의 created_at이 측정시작일보다 과거. 측정종료일보다 미래인 글은 스킵하되 순회는
 // 계속한다(더 과거로 가면 범위 안에 들 수 있으므로).
+// §28-9(2026-07-20 실기동, 4분반): .btnNextPost가 다음 "글"이 아니라 공지사항으로 넘어가는
+// 경우가 실측 확인됐다(get_announcement 호출, get_post는 안 옴) - postDetail만 기다리면
+// 영원히 타임아웃돼 순회 전체가 조기 중단된다(51/98건에서 중단됨). postDetail과
+// announcementDetail을 동시에 기다려 어느 쪽이 왔는지 구분한다.
+function waitForNextPostOrAnnouncement(interceptor, bandId, seenPostNos, timeoutMs, label) {
+  const postWait = waitForEvent(
+    interceptor,
+    'postDetail',
+    (e) => String(e.bandId) === String(bandId) && !seenPostNos.has(String(e.post && e.post.post_no)),
+    timeoutMs,
+    `${label}:post`
+  ).then((d) => (d ? { type: 'post', detail: d } : null));
+  const announcementWait = waitForEvent(
+    interceptor,
+    'announcementDetail',
+    (e) => String(e.bandId) === String(bandId),
+    timeoutMs,
+    `${label}:announcement`
+  ).then((d) => (d ? { type: 'announcement', detail: d } : null));
+  return Promise.race([postWait, announcementWait]);
+}
+
 async function walkPostsViaModal(win, interceptor, writer, { bandId, settings, pacing, logger }) {
   const perAttemptTimeout = Math.max((pacing.maxDelayMs || 4000) + 3000, 6000);
   const posts = [];
@@ -778,12 +831,12 @@ async function walkPostsViaModal(win, interceptor, writer, { bandId, settings, p
   const seenPostNos = new Set();
 
   // 첫 글은 아직 post_no를 모르니(피드에서 "가장 위" 글을 그냥 클릭) 어떤 post_no든 매칭한다.
-  let pendingDetail = waitForEvent(interceptor, 'postDetail', (e) => String(e.bandId) === String(bandId), perAttemptTimeout, 'postDetail:open-first');
+  let pendingWait = waitForNextPostOrAnnouncement(interceptor, bandId, seenPostNos, perAttemptTimeout, 'postDetail:open-first');
   let openResult = await openFirstVisiblePostModal(win);
   trace.record({ phase: 'openFirstVisiblePostModal', attempt: 0, ...openResult });
   for (let i = 0; i < 3 && !openResult.ok && openResult.reason === 'not-found'; i++) {
     await sleep(800);
-    pendingDetail = waitForEvent(interceptor, 'postDetail', (e) => String(e.bandId) === String(bandId), perAttemptTimeout, `postDetail:open-first-retry=${i}`);
+    pendingWait = waitForNextPostOrAnnouncement(interceptor, bandId, seenPostNos, perAttemptTimeout, `postDetail:open-first-retry=${i}`);
     openResult = await openFirstVisiblePostModal(win);
     trace.record({ phase: 'openFirstVisiblePostModal', attempt: i + 1, ...openResult });
   }
@@ -808,11 +861,35 @@ async function walkPostsViaModal(win, interceptor, writer, { bandId, settings, p
   const maxPosts = pacing.maxPostsPerBand || 2000; // 무한루프 방지용 안전 상한
 
   for (let i = 0; i < maxPosts; i++) {
-    const detail = await pendingDetail;
-    if (!detail) {
-      logger.warn && logger.warn('[collector] 현재 모달의 게시글 상세(get_post) 캡처를 못 받음 — 순회 중단.');
+    let result = await pendingWait;
+
+    // §28-9: 공지사항을 만나면 카운트하지 않고(글이 아니므로) 자동으로 다음으로 건너뛴다.
+    while (result && result.type === 'announcement') {
+      const announcementId = result.detail && result.detail.announcementId;
+      logger.log(`[collector] 모달 순회: 공지사항(id=${announcementId}) 발견 - 건너뜀.`);
+      trace.record({ phase: 'walkSkipAnnouncement', announcementId });
+      pendingWait = waitForNextPostOrAnnouncement(interceptor, bandId, seenPostNos, perAttemptTimeout, `postDetail:after-announcement=${announcementId}`);
+      await randomDelay(pacing);
+      const clickedAfterAnnouncement = await clickNextPost(win);
+      trace.record({ phase: 'clickNextPost', afterAnnouncement: true, ...clickedAfterAnnouncement });
+      if (!clickedAfterAnnouncement.ok) {
+        if (clickedAfterAnnouncement.reason === 'no-button') {
+          exhausted = true;
+          logger.log(`[collector] 모달 순회: 공지사항(id=${announcementId}) 이후 다음 글 버튼 없음(가장 오래된 글) - 종료.`);
+        }
+        result = null;
+        break;
+      }
+      result = await pendingWait;
+    }
+
+    if (!result) {
+      if (!exhausted) {
+        logger.warn && logger.warn('[collector] 현재 모달의 게시글 상세(get_post) 캡처를 못 받음 — 순회 중단.');
+      }
       break;
     }
+    const detail = result.detail;
     const post = detail.post;
     posts.push(post);
     seenPostNos.add(String(post.post_no));
@@ -886,13 +963,7 @@ async function walkPostsViaModal(win, interceptor, writer, { bandId, settings, p
     // 부족했다(post_no 47/48이 번갈아 재등장 - 버퍼에 여러 post_no의 중복 emit이 동시에 남아
     // 서로를 오가며 재소비됨). bandId만 보던 predicate에 "이번 walk에서 이미 처리한 post_no
     // 전체 집합에 없어야 한다"는 조건으로 강화한다.
-    pendingDetail = waitForEvent(
-      interceptor,
-      'postDetail',
-      (e) => String(e.bandId) === String(bandId) && !seenPostNos.has(String(e.post && e.post.post_no)),
-      perAttemptTimeout,
-      `postDetail:after=${post.post_no}`
-    );
+    pendingWait = waitForNextPostOrAnnouncement(interceptor, bandId, seenPostNos, perAttemptTimeout, `postDetail:after=${post.post_no}`);
     await randomDelay(pacing);
     const clicked = await clickNextPost(win);
     trace.record({ phase: 'clickNextPost', postNo: post.post_no, ...clicked });

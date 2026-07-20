@@ -5,6 +5,7 @@ const DATA_HOSTS = ['api-kr.band.us', 'bapi-kr.band.us'];
 const PATTERNS = {
   feedList: /\/get_posts_and_announcements(?:[/?]|$)/,
   postDetail: /\/get_post(?:[/?]|$)/,
+  announcementDetail: /\/get_announcement(?:[/?]|$)/,
   commentList: /\/get_comments(?:[/?]|$)/,
   memberList: /\/get_members_of_band(?:[/?]|$)/,
 };
