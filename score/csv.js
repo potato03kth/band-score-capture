@@ -2,6 +2,11 @@
 const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
+const { applyYellow } = require('../lib/xlsx');
+
+// 교수가 결과를 훑어볼 때 0을 놓치지 않도록 강조하는 컬럼(활동일수·게시글수·댓글수·점수).
+// "0이 문제"라는 판정이 아니라 단순 시각적 강조 목적 — 로직을 복잡하게 만들지 않는다.
+const ZERO_HIGHLIGHT_COLUMNS = ['활동일수', '게시글수', '댓글수', '점수'];
 
 function csvEscape(v) {
   const s = v == null ? '' : String(v);
@@ -104,7 +109,10 @@ async function writeAuditWorkbook(filePath, rows, bandSummaryRows = []) {
   for (const r of rows) {
     const row = {};
     for (const [col] of COLUMN_DESCRIPTIONS) row[col] = r[col];
-    resultSheet.addRow(row);
+    const excelRow = resultSheet.addRow(row);
+    for (const col of ZERO_HIGHLIGHT_COLUMNS) {
+      if (row[col] === 0) applyYellow(excelRow.getCell(col));
+    }
   }
 
   const descSheet = wb.addWorksheet('컬럼 설명');
