@@ -1,11 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 
-// BSC_TRACE=1로 켜면 모든 data-host 요청의 생명주기(요청 발생/응답 도착/실패), 댓글
-// 페이지네이션 중 total 값 변화, 밴드 페이지 콘솔 에러를 logs/trace/에 ndjson으로 통째로
-// 남긴다. m1-live-findings.md §8-2 참고 — "재기동 한 번 = 가설 하나 검증"의 비용을 줄이려고
-// 실기동 전에 미리 깔아두는 상시 계측이다. 기본은 꺼져 있다(끄면 record()는 아무 것도 안 함).
-function createTracer({ logsDir, bandId, enabled = process.env.BSC_TRACE === '1' } = {}) {
+// 모든 data-host 요청의 생명주기(요청 발생/응답 도착/실패), 댓글 페이지네이션 중 total 값
+// 변화, 밴드 페이지 콘솔 에러를 logs/trace/에 ndjson으로 통째로 남긴다. m1-live-findings.md
+// §8-2 참고 — "재기동 한 번 = 가설 하나 검증"의 비용을 줄이려고 실기동 전에 미리 깔아두는
+// 상시 계측이다. AI가 화면을 직접 볼 수 없는 세션에서도 로그만으로 상황을 재구성할 수 있어야
+// 하므로 기본값은 켜짐이다 — 끄고 싶으면 BSC_TRACE=0.
+function createTracer({ logsDir, bandId, enabled = process.env.BSC_TRACE !== '0' } = {}) {
   if (!enabled) {
     return { enabled: false, file: null, record: () => {}, close: () => {} };
   }

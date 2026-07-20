@@ -148,12 +148,44 @@ function createWriter({ rawDir, bandId }) {
     return file;
   }
 
+  // "수집 못 했다는 사실을 모르는 것"이 진짜 실패라는 원칙(사용자 지적, 2026-07-20) — 매 실행마다
+  // 그 시점 기준 알려진 결손 전체를 덮어써서 남긴다(append가 아님 — 다음 실행에서 고쳐지면
+  // 이 파일에서도 사라져야 "아직도 안 고쳐진 것"과 "이미 고쳐진 것"을 혼동하지 않는다).
+  // scripts/list_incomplete_gaps.js가 이 파일을 읽어 사람이 수동으로 확인할 체크리스트를 뽑는다.
+  function writeIncompleteGaps(gaps) {
+    const file = path.join(bandDir, 'incomplete_gaps.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ bandId: String(bandId), updatedAtMs: Date.now(), count: gaps.length, gaps }, null, 2),
+      'utf8'
+    );
+    return file;
+  }
+
+  // 신뢰도 체계(CLAUDE.md) 2단계 교차검증 3번(멤버별 댓글 수, BSC_VERIFY_MEMBERS=1일 때만
+  // 채워짐) 결과를 저장한다. writeMembersSnapshot(API로 받은 멤버 목록)과는 별개 파일 -
+  // 이건 "화면에 표시된 멤버별 댓글 수" 스냅샷이다.
+  function writeMemberCommentCounts(results) {
+    const ts = Date.now();
+    const dir = path.join(bandDir, '_members');
+    ensureDirSync(dir);
+    const file = path.join(dir, `member_comment_counts_${ts}.json`);
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ bandId: String(bandId), capturedAtMs: ts, results }, null, 2),
+      'utf8'
+    );
+    return file;
+  }
+
   return {
     bandDir,
     writePost,
     writeComment,
     writeMembersSnapshot,
+    writeMemberCommentCounts,
     writeCollectionStatus,
+    writeIncompleteGaps,
     hasPost: (postNo) => dedupPosts.has(String(postNo)),
     hasComment: (postNo, commentId) => dedupComments.has(`p:${postNo}:${commentId}`),
     getTopCommentCount: (postNo) => (commentsByPost.get(String(postNo)) || new Set()).size,

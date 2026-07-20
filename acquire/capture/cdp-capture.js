@@ -1,4 +1,6 @@
 const zlib = require('zlib');
+const fs = require('fs');
+const path = require('path');
 const endpoints = require('./endpoints');
 
 // band.us 응답은 gzip/br로 압축돼 오는데, Fetch.getResponseBody가 압축 해제 없이 원본
@@ -45,7 +47,27 @@ function withTimeout(promise, ms, label) {
 // (이미지·스크립트 등)엔 영향 없다.
 const noopTracer = { enabled: false, record: () => {} };
 
-async function attachCdpCapture(win, interceptor, { logger = console, tracer = null } = {}) {
+// CDP Page.captureScreenshot로 창의 현재 화면을 PNG로 저장한다. 사람이 화면을 직접 보지
+// 않아도(또는 CLI라 볼 수 없어도) AI가 나중에 Read 도구로 이미지를 그대로 열어볼 수 있게
+// 하기 위함 — 로그인/모달/에러 등 주요 전환 지점마다 collector.js가 이 함수를 호출한다.
+// Page.enable 없이도 캡처 커맨드 자체는 동작한다(이벤트 구독이 아니라 단발성 커맨드라서).
+async function captureScreenshot(dbg, { logsDir, bandId, label = 'shot', logger = console } = {}) {
+  try {
+    const result = await dbg.sendCommand('Page.captureScreenshot', { format: 'png' });
+    const dir = path.join(logsDir, 'screenshots', String(bandId));
+    fs.mkdirSync(dir, { recursive: true });
+    const safeLabel = String(label).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+    const file = path.join(dir, `${Date.now()}_${safeLabel}.png`);
+    fs.writeFileSync(file, Buffer.from(result.data, 'base64'));
+    logger.log && logger.log(`[cdp] 스크린샷 저장: ${file}`);
+    return file;
+  } catch (err) {
+    logger.warn && logger.warn(`[cdp] 스크린샷 실패(${label}): ${err.message}`);
+    return null;
+  }
+}
+
+async function attachCdpCapture(win, interceptor, { logger = console, tracer = null, logsDir = null, bandId = null } = {}) {
   const trace = tracer || noopTracer;
   const dbg = win.webContents.debugger;
   // Network.requestWillBeSent(requestId) -> {url, kind, tsMs}. Fetch.requestPaused의
@@ -200,6 +222,8 @@ async function attachCdpCapture(win, interceptor, { logger = console, tracer = n
     }
   };
 
+  const screenshot = (label) => captureScreenshot(dbg, { logsDir, bandId, label, logger });
+
   // data-host만 패턴에 걸어 나머지 리소스(이미지·스크립트 등)는 아예 가로채지 않는다(비용 절감).
   const patterns = endpoints.DATA_HOSTS.flatMap((host) => [
     { urlPattern: `http://${host}/*`, requestStage: 'Response' },
@@ -238,7 +262,7 @@ async function attachCdpCapture(win, interceptor, { logger = console, tracer = n
     }
   }
 
-  return { detach };
+  return { detach, screenshot };
 }
 
 module.exports = { attachCdpCapture };

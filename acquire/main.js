@@ -85,8 +85,8 @@ async function run() {
     app.quit();
   });
 
-  if (process.env.BSC_TRACE === '1') {
-    logger.log('[main] BSC_TRACE=1 — 요청 생명주기/댓글 total 변화/콘솔 에러를 logs/trace/에 기록합니다.');
+  if (process.env.BSC_TRACE !== '0') {
+    logger.log('[main] 트레이스 활성화(기본값) — 요청 생명주기/댓글 total 변화/콘솔 에러를 logs/trace/에 기록합니다. 끄려면 BSC_TRACE=0.');
   }
 
   for (const band of settings.bands) {
@@ -95,18 +95,29 @@ async function run() {
     const tracer = createTracer({ logsDir: paths.logs, bandId: band.bandId });
     const interceptor = createInterceptor({ writer, bandId: band.bandId, logger, tracer });
 
+    // AI가 화면을 직접 못 보는 세션(CLI 등)에서도 상황을 이해할 수 있도록, CDP가 attach되기
+    // 전에도 collector.js가 안전하게 호출할 수 있는 no-op 스크린샷 함수를 먼저 걸어둔다 —
+    // attach 완료 후 실제 함수로 교체된다(§ 아래 cdpPromise.then).
+    interceptor.screenshot = async () => null;
+
     // 밴드마다 새로 attach/detach한다(옵션 A) — pending Map이 밴드 사이에서 꼬이지 않고
     // 에러 처리도 밴드 단위로 격리된다(doc/m1-cdp-migration-plan.md §3).
     // CDP attach 완료를 기다리지 않고 탐색을 바로 시작한다 — attach/Network.enable이 느리거나
     // 멈춰도(실기동 관측됨) 로그인 화면 로딩 자체는 막히면 안 되므로 병렬로 진행한다.
-    const cdpPromise = attachCdpCapture(win, interceptor, { logger, tracer }).catch((err) => {
-      logger.error(`[main] CDP attach 실패: ${err.stack || err.message}`);
-      return null;
-    });
+    const cdpPromise = attachCdpCapture(win, interceptor, { logger, tracer, logsDir: paths.logs, bandId: band.bandId })
+      .then((cdp) => {
+        interceptor.screenshot = cdp.screenshot;
+        return cdp;
+      })
+      .catch((err) => {
+        logger.error(`[main] CDP attach 실패: ${err.stack || err.message}`);
+        return null;
+      });
     try {
       await collector.runBandCollection({ win, interceptor, writer, band, settings, config, logger });
     } catch (err) {
       logger.error(`밴드 ${band.bandId} 수집 중 오류: ${err.stack || err.message}`);
+      await interceptor.screenshot(`band-error-${band.bandId}`);
     } finally {
       const cdp = await cdpPromise;
       if (cdp) cdp.detach();

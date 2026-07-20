@@ -21,16 +21,20 @@ fixes there were already tried and reverted.
 
 ## Start here for the next work session
 
-**`doc/next-session-prompt.md` is the literal next prompt to paste in** — it
-lays out, in order, the one unresolved bug blocking M1: raw ndjson files
-under `data/raw/103239777/` were not being updated during a session that the
-in-memory trace log showed as fully successful (`postsCommentsComplete:
-52/52`). Root cause was not yet confirmed as of 2026-07-17 end of session.
-Leading hypothesis: `comment.created_at` may not always be a numeric epoch
-ms at runtime, which would corrupt `writer.js`'s `kstDateStr()` via JS's
-string-concatenation `+` behavior. **Do not treat M1 as done until this is
-resolved and verified**, regardless of what any trace log or restart
-appears to show.
+**`doc/next-session-prompt.md` is the literal next prompt to paste in.** As of
+2026-07-20 end of session, §27's blockers (event-bus double-consumption
+regression, and three per-member comment-count verification bugs: comment
+tab not switching, no wait-for-load, member list not scrolled) are all fixed
+**and re-verified live at full 57-member scale** — see
+`doc/m1-live-findings.md` §28 for the full story, including two dead-end
+attempts (a URL hard-navigation fix that silently broke comment pagination,
+and a "scroll once, reuse coordinates" optimization that turned out to be
+invalid because the list DOM resets on back-navigation). M1 acquire's core
+data-accuracy verification is effectively done. The only open item is a
+one-off "post walk stopped early at 14 posts instead of ~53-61" incident
+(§28-7) that hasn't recurred yet — watch for it, don't chase it speculatively
+unless it repeats. Changes are **uncommitted** — confirm with the user before
+committing.
 
 ## Working style — lessons paid for with real restarts, don't relearn them
 
@@ -68,6 +72,41 @@ artifacts/audit logs from real runs. These are intentionally excluded from
 git (see `.gitignore`) even though this repo is currently **public** —
 don't add or suggest removing that exclusion. If you need sample data to
 test against, ask the user rather than committing real captures.
+
+## Trust tiers for judging data completeness (user-defined, 2026-07-20)
+
+No signal in this pipeline is an independent, external ground truth — everything ultimately comes
+from band.us itself. When deciding whether captured data is complete, always reason in these
+tiers (highest to lowest trust), and always consider all of them together, not just one:
+
+1. **Human verification** — a person actually reading the page and counting. This is the only
+   real ground truth this project has ever had (see the 61/63-post manual count exercise in
+   `doc/m1-live-findings.md`).
+2. **"Right before human verification" tier** — three specific UI-rendered signals the user has
+   identified as trustworthy proxies for what a human would see:
+   - Post modal's own displayed comment count (`.postCount > .postCountLeft > .faceComment >
+     .comment` chain, the number band.us itself renders for "댓글 N개" including replies) —
+     trustworthy because it's literally what a human reads on screen, unlike the API's
+     `comment_count` field.
+   - Total post count via `div.postWrap.viewTypeListWrap` → count of
+     `div.cCard.gContentCardShadow.-brunchOfPostType` children (excluding
+     `data-viewname="DAnnouncementItemView"` items and `display:none` elements), after scrolling
+     the feed all the way to the bottom.
+   - Per-member total comment count via 멤버 → member icon → 작성글 보기 → 댓글 tab → scroll to
+     bottom. Note: this is captured by *our own code* too, so it's a cross-check between two
+     paths through the same automation, not a fully independent source — still useful for
+     catching internal inconsistencies.
+3. **Band's own bare numeric fields** (`comment_count` on posts/comments, `total` in paginated
+   responses) — already established as unreliable (`doc/m1-live-findings.md` §12-2, §20-1).
+   Useful only as a last-resort hint, never as the sole basis for declaring success or failure.
+4. **Our own loop-termination signals** (`.moreComment`/`.moreReply` button absence,
+   `previousParams === null`) — these decide when collection *stops*, but "band's UI has nothing
+   more to show" is not the same claim as "we have the true complete data."
+
+When adding or reviewing any completeness check, cite which tier it's based on, and prefer
+disagreements to be resolved in favor of the higher tier. `data/raw/<bandId>/incomplete_gaps.json`
+records tier-3-vs-captured mismatches and tier-2-vs-captured mismatches with a `reason` field
+distinguishing them — read that field before deciding how seriously to treat an entry.
 
 ## How to run
 
