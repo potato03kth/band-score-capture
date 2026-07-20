@@ -23,6 +23,28 @@ const COLUMN_DESCRIPTIONS = [
   ['산출시각', '이 결과를 뽑은 시각'],
 ];
 
+// 교수가 "대상밴드" 시트에 채운 예상 게시글수(선택)와 실제 캡처된 게시글수를 대조한다.
+// bandPostCounts: Map<bandId(string), capturedPostCount>. 예상치는 선택 입력이라 없으면
+// 대조하지 않고 "(예상치 미입력)"으로만 표시한다 — 불일치 게이트(Phase 6)와 달리 채점을
+// 막지 않는 참고용 요약이다.
+function buildBandSummaryRows(bands, bandPostCounts) {
+  return bands.map((b) => {
+    const captured = bandPostCounts.get(String(b.bandId)) ?? 0;
+    const expected = b.expectedPostCount ?? null;
+    let status;
+    if (expected == null) status = '(예상치 미입력)';
+    else if (expected === captured) status = '일치';
+    else status = '불일치(확인 필요)';
+    return {
+      band_name: b.name,
+      band_id: b.bandId,
+      예상_게시글수: expected == null ? '' : expected,
+      캡처된_게시글수: captured,
+      상태: status,
+    };
+  });
+}
+
 function buildRows({ mapping, scores, cap, bandCollectionComplete, generatedAt }) {
   const rows = [];
   for (const [userNo, m] of mapping) {
@@ -58,8 +80,19 @@ function writeCsv(filePath, rows) {
   fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf8');
 }
 
-async function writeAuditWorkbook(filePath, rows) {
+async function writeAuditWorkbook(filePath, rows, bandSummaryRows = []) {
   const wb = new ExcelJS.Workbook();
+
+  const summarySheet = wb.addWorksheet('밴드요약');
+  summarySheet.columns = [
+    { header: '밴드 이름', key: 'band_name', width: 20 },
+    { header: 'band_id', key: 'band_id', width: 16 },
+    { header: '예상 게시글수', key: '예상_게시글수', width: 16 },
+    { header: '캡처된 게시글수', key: '캡처된_게시글수', width: 16 },
+    { header: '상태', key: '상태', width: 20 },
+  ];
+  summarySheet.getRow(1).font = { bold: true };
+  for (const r of bandSummaryRows) summarySheet.addRow(r);
 
   const resultSheet = wb.addWorksheet('결과');
   resultSheet.columns = COLUMN_DESCRIPTIONS.map(([col]) => ({ header: col, key: col, width: col === '실명' ? 12 : 16 }));
@@ -119,4 +152,11 @@ function writeUnmatchedCsv(filePath, rows) {
   return unmatched.length;
 }
 
-module.exports = { buildRows, writeCsv, writeAuditWorkbook, writeUnmatchedCsv, COLUMN_DESCRIPTIONS };
+module.exports = {
+  buildRows,
+  buildBandSummaryRows,
+  writeCsv,
+  writeAuditWorkbook,
+  writeUnmatchedCsv,
+  COLUMN_DESCRIPTIONS,
+};

@@ -70,8 +70,10 @@ async function main() {
 
   const allActivities = [];
   const bandCollectionComplete = new Map();
+  const bandPostCounts = new Map();
   for (const band of settings.bands) {
     const { posts, activities } = parser.parseBandRaw(paths.raw, band.bandId);
+    bandPostCounts.set(String(band.bandId), posts.size);
 
     const statusPath = path.join(paths.raw, String(band.bandId), 'collection_status.json');
     if (fs.existsSync(statusPath)) {
@@ -99,6 +101,7 @@ async function main() {
   // 4) 산출
   const generatedAt = new Date().toISOString();
   const rows = csv.buildRows({ mapping, scores, cap: settings.cap, bandCollectionComplete, generatedAt });
+  const bandSummaryRows = csv.buildBandSummaryRows(settings.bands, bandPostCounts);
 
   const ts = timestamp();
   const csvPath = path.join(paths.out, `scores_${ts}.csv`);
@@ -106,7 +109,7 @@ async function main() {
   const unmatchedPath = path.join(paths.out, `unmatched_${ts}.csv`);
 
   csv.writeCsv(csvPath, rows);
-  await csv.writeAuditWorkbook(xlsxPath, rows);
+  await csv.writeAuditWorkbook(xlsxPath, rows, bandSummaryRows);
   const unmatchedCount = csv.writeUnmatchedCsv(unmatchedPath, rows);
 
   console.log(`[score] 완료 - 학생 ${rows.length}명, 점수 산출.`);
