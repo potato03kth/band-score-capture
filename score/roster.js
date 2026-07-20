@@ -6,12 +6,40 @@
 const path = require('path');
 const xlsx = require('../lib/xlsx');
 const parser = require('./parser');
+const rules = require('./rules');
 
 const ROSTER_FILENAME = '2_로스터.xlsx';
 
+// user_no별 최초·최신 활동을 raw 활동 레코드 전체(측정기간 필터링 없음)에서 뽑는다 — 채점이
+// 아니라 "이 user_no가 누구인지" 식별을 돕는 참고용 힌트라서 기간과 무관하게 전체 이력을 본다.
+// 활동이 없는 user_no는 Map에 아예 없다(0건 케이스는 호출부에서 null로 처리).
+function computeActivityHints(rawDir, bands) {
+  const hints = new Map(); // userNo -> { first: {dateStr, textPreview, kind}, last: {...} }
+  for (const band of bands) {
+    const { activities } = parser.parseBandRaw(rawDir, band.bandId);
+    for (const a of activities) {
+      const entry = { dateStr: rules.kstDateStr(a.createdAtMs), textPreview: a.textPreview, kind: a.kind };
+      const existing = hints.get(a.userNo);
+      if (!existing) {
+        hints.set(a.userNo, { first: entry, firstMs: a.createdAtMs, last: entry, lastMs: a.createdAtMs });
+      } else {
+        if (a.createdAtMs < existing.firstMs) {
+          existing.first = entry;
+          existing.firstMs = a.createdAtMs;
+        }
+        if (a.createdAtMs > existing.lastMs) {
+          existing.last = entry;
+          existing.lastMs = a.createdAtMs;
+        }
+      }
+    }
+  }
+  return hints;
+}
+
 // 밴드별 멤버 스냅샷을 모아, 소거집합(리더+조교)을 뺀 "채점 대상 후보" 목록을 만든다.
 function collectCandidateMembers(rawDir, bands, { taUserNos }) {
-  const candidates = []; // { bandId, bandName, userNo, name }
+  const candidates = []; // { bandId, bandName, userNo, name, firstActivity, lastActivity }
   const leaderUserNos = new Set(taUserNos);
   for (const band of bands) {
     const snapshot = parser.loadLatestMemberSnapshot(rawDir, band.bandId);
@@ -20,12 +48,21 @@ function collectCandidateMembers(rawDir, bands, { taUserNos }) {
       if (m.role && m.role !== 'member') leaderUserNos.add(m.user_no);
     }
   }
+  const hints = computeActivityHints(rawDir, bands);
   for (const band of bands) {
     const snapshot = parser.loadLatestMemberSnapshot(rawDir, band.bandId);
     if (!snapshot) continue;
     for (const m of snapshot.members) {
       if (leaderUserNos.has(m.user_no)) continue;
-      candidates.push({ bandId: String(band.bandId), bandName: band.name, userNo: m.user_no, name: m.name });
+      const hint = hints.get(m.user_no);
+      candidates.push({
+        bandId: String(band.bandId),
+        bandName: band.name,
+        userNo: m.user_no,
+        name: m.name,
+        firstActivity: hint ? hint.first : null,
+        lastActivity: hint ? hint.last : null,
+      });
     }
   }
   return { candidates, leaderUserNos };
@@ -55,7 +92,7 @@ async function loadRosterMapping(inputDir, candidates, logger = console) {
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber === 1) return;
     const userNoRaw = xlsx.readCell(row.getCell(2));
-    const studentId = xlsx.readCell(row.getCell(4));
+    const studentId = xlsx.readCell(row.getCell(6)); // 1밴드 2user_no 3실명 4최초활동 5최신활동 6학번
     const userNo = Number(userNoRaw);
     if (!Number.isFinite(userNo) || !studentId) return;
     filled.set(userNo, String(studentId).trim());
@@ -99,4 +136,11 @@ function buildFinalMapping(candidates, filledMap) {
   return result;
 }
 
-module.exports = { ROSTER_FILENAME, collectCandidateMembers, loadRosterMapping, assignSyntheticIds, buildFinalMapping };
+module.exports = {
+  ROSTER_FILENAME,
+  computeActivityHints,
+  collectCandidateMembers,
+  loadRosterMapping,
+  assignSyntheticIds,
+  buildFinalMapping,
+};

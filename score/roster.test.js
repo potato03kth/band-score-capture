@@ -17,6 +17,11 @@ function writeMemberSnapshot(rawDir, bandId, members, ts = '1700000000000') {
   fs.writeFileSync(path.join(dir, `members_${ts}.json`), JSON.stringify({ members }));
 }
 
+function writeNdjson(filePath, lines) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, lines.map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf8');
+}
+
 test('collectCandidateMembers: role이 member가 아닌 사람(리더/공동리더)은 후보에서 빠진다', () => {
   const dir = makeTmpDir();
   try {
@@ -90,6 +95,79 @@ test('collectCandidateMembers: 여러 밴드의 candidates를 밴드명과 함�
   }
 });
 
+test('computeActivityHints: 활동이 여러 건인 유저는 가장 이른/늦은 활동을 first/last로 잡는다', () => {
+  const dir = makeTmpDir();
+  try {
+    const bandId = '111';
+    writeNdjson(path.join(dir, bandId, '2026-06-28', 'items.ndjson'), [
+      {
+        schemaType: 'post',
+        data: { post_no: 1, author: { user_no: 1, name: 'A' }, created_at: Date.UTC(2026, 5, 28, 1, 0, 0), content: '첫글' },
+      },
+    ]);
+    writeNdjson(path.join(dir, bandId, '2026-07-10', 'items.ndjson'), [
+      {
+        schemaType: 'comment',
+        parentCommentId: null,
+        data: { post_no: 1, comment_id: 'c1', author: { user_no: 1, name: 'A' }, created_at: Date.UTC(2026, 6, 10, 1, 0, 0), body: '마지막댓글' },
+      },
+      {
+        schemaType: 'post',
+        data: { post_no: 2, author: { user_no: 1, name: 'A' }, created_at: Date.UTC(2026, 6, 5, 1, 0, 0), content: '중간글' },
+      },
+    ]);
+    const bands = [{ bandId, name: '1반' }];
+    const hints = roster.computeActivityHints(dir, bands);
+    const hint = hints.get(1);
+    assert.equal(hint.first.dateStr, '2026-06-28');
+    assert.equal(hint.first.textPreview, '첫글');
+    assert.equal(hint.first.kind, 'post');
+    assert.equal(hint.last.dateStr, '2026-07-10');
+    assert.equal(hint.last.textPreview, '마지막댓글');
+    assert.equal(hint.last.kind, 'comment');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('computeActivityHints: 활동이 없는 유저는 Map에 없다(0건 케이스)', () => {
+  const dir = makeTmpDir();
+  try {
+    const bands = [{ bandId: '111', name: '1반' }];
+    const hints = roster.computeActivityHints(dir, bands);
+    assert.equal(hints.has(999), false);
+    assert.equal(hints.size, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('collectCandidateMembers: 후보에 firstActivity/lastActivity가 붙고, 활동 없는 후보는 둘 다 null이다', () => {
+  const dir = makeTmpDir();
+  try {
+    const bandId = '111';
+    writeMemberSnapshot(dir, bandId, [
+      { user_no: 1, name: '활동있음', role: 'member' },
+      { user_no: 2, name: '활동없음', role: 'member' },
+    ]);
+    writeNdjson(path.join(dir, bandId, '2026-06-28', 'items.ndjson'), [
+      {
+        schemaType: 'post',
+        data: { post_no: 1, author: { user_no: 1, name: '활동있음' }, created_at: Date.UTC(2026, 5, 28, 1, 0, 0), content: '글' },
+      },
+    ]);
+    const bands = [{ bandId, name: '1반' }];
+    const { candidates } = roster.collectCandidateMembers(dir, bands, { taUserNos: [] });
+    const byName = Object.fromEntries(candidates.map((c) => [c.name, c]));
+    assert.equal(byName['활동있음'].firstActivity.dateStr, '2026-06-28');
+    assert.equal(byName['활동있음'].lastActivity.dateStr, '2026-06-28');
+    assert.equal(byName['활동없음'].firstActivity, null);
+    assert.equal(byName['활동없음'].lastActivity, null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('assignSyntheticIds: user_no 오름차순으로 TEST0001부터 결정적으로 부여한다', () => {
   const map1 = roster.assignSyntheticIds([103, 101, 102]);
   assert.equal(map1.get(101), 'TEST0001');
@@ -157,10 +235,10 @@ test('loadRosterMapping: 학번이 채워진 기존 파일을 읽어 user_no →
       { bandName: '1반', bandId: '111', userNo: 1, name: '홍길동' },
       { bandName: '1반', bandId: '111', userNo: 2, name: '김철수' },
     ]);
-    // 학번 칸(4번째 열)을 채운다
+    // 학번 칸(6번째 열: 밴드/user_no/실명/최초활동/최신활동/학번)을 채운다
     const wb = await xlsx.readWorkbook(filePath);
     const sheet = wb.getWorksheet('로스터');
-    sheet.getRow(2).getCell(4).value = '20260001';
+    sheet.getRow(2).getCell(6).value = '20260001';
     await wb.xlsx.writeFile(filePath);
 
     const { filled, created } = await roster.loadRosterMapping(dir, []);
