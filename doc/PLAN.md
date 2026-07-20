@@ -592,9 +592,9 @@ band-score-capture/
 
 ### H-3. 구현 8단계 (Sonnet 1세션 실행 가능 크기로 분할, 순서대로 진행)
 
-> 진행 현황(2026-07-21): Phase 0~3 완료·커밋됨(`1a09479`, `578858d`, `45319dc`, Phase 3는 이
-> 갱신과 함께 커밋됨 — 다음 세션은 **Phase 4**부터 시작). 각 완료 phase는 `npm test` 전체
-> 통과 상태로 남겨뒀다.
+> 진행 현황(2026-07-21): Phase 0~5 완료·커밋됨(`1a09479`, `578858d`, `45319dc`, `eadd3ef`,
+> `4070393`, `5d2aea0` — 다음 세션은 **Phase 6**부터 시작). 각 완료 phase는 `npm test` 전체
+> 통과 상태로 남겨뒀다(현재 95건).
 
 - ~~**Phase 0 — 테스트 인프라.**~~ 완료. `package.json`에 `"test": "node --test score lib"` 추가.
   `score/`·`lib/` 기존 로직(parser·rules·roster·scorer·csv·xlsx·settings) 회귀 방지 베이스라인
@@ -609,12 +609,15 @@ band-score-capture/
   `kind`별로 세어 `postCount`/`commentCount` 반환, `score/csv.js` COLUMN_DESCRIPTIONS에 "게시글수"·
   "댓글수" 추가(활동일수 다음, 점수 앞). 테스트로 감사 원장(`_records`) 종류별 실제 건수와 일치함을
   확인.
-- **Phase 4 — 0값 하이라이트 (다음 작업).** 결과 시트에서 점수·활동일수·게시글수·댓글수 0인 셀에
-  배경 스타일(`score/csv.js`의 `writeAuditWorkbook` 결과 시트 렌더링 부분, ExcelJS `cell.fill`).
-  검증: 워크북을 다시 읽어 해당 셀 `fill` 세팅 확인.
-- **Phase 5 — 로스터 최초/최신활동 표시.** `score/roster.js`가 parser 결과에서 user_no별 최초·최신 활동 계산,
-  `lib/xlsx.js` 템플릿에 컬럼 추가. 검증: 다건/0건 유저 케이스.
-- **Phase 6 — 부적합 데이터 확인 엑셀 + 채점 게이트(5개 하위단계).**
+- ~~**Phase 4 — 0값 하이라이트.**~~ 완료. 결과 시트에서 점수·활동일수·게시글수·댓글수 0인 셀에
+  `lib/xlsx.js`의 `applyYellow` 스타일 재사용(`score/csv.js`의 `writeAuditWorkbook`). 테스트로
+  0값 셀만 fill 설정되고 나머지는 없음을 워크북 재읽기로 확인.
+- ~~**Phase 5 — 로스터 최초/최신활동 표시.**~~ 완료. `score/roster.js`에 `computeActivityHints`
+  추가 — user_no별 최초·최신 활동(날짜+유형+내용요약)을 측정기간 필터 없이(식별용이므로) 계산해
+  `collectCandidateMembers`의 각 후보에 붙임. `lib/xlsx.js`의 `2_로스터.xlsx` 템플릿에
+  "최초활동(참고용)"·"최신활동(참고용)" 컬럼 추가(실명↔학번 사이, 학번 칸은 4번째→6번째 열로
+  밀림 — `loadRosterMapping`의 읽기 인덱스도 갱신됨). 테스트로 다건/0건 유저 케이스 모두 커버.
+- **Phase 6 — 부적합 데이터 확인 엑셀 + 채점 게이트(5개 하위단계, 다음 작업).**
   - 6-1 `scripts/list_incomplete_gaps.js`의 CSV 로직을 엑셀 워크북 생성으로 이전(3섹션: 게시글총수/게시글댓글/학생댓글)
   - 6-2 "학생댓글" 시트에 SUMIF류 수식으로 실시간 합산 계산기 컬럼
   - 6-3 되읽기: manual_value 미기입 잔존 여부 판단 함수(`score/gaps.js` 신규)
