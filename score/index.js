@@ -27,7 +27,8 @@ async function main() {
 
   let settings;
   try {
-    settings = await settingsLib.loadSettings({ inputDir: paths.input });
+    const mode = settingsLib.resolveMode();
+    settings = await settingsLib.loadSettings({ inputDir: paths.input, mode });
   } catch (e) {
     if (e instanceof settingsLib.SettingsNotReadyError || e instanceof settingsLib.SettingsValidationError) {
       console.error(`[score] ${e.message}`);
@@ -36,7 +37,7 @@ async function main() {
     throw e;
   }
   console.log(
-    `[score] 설정 로드 완료: ${settings.startLabel || '(전체)'} ~ ${settings.endLabel || '(전체)'}, cap=${settings.cap}, 대상 밴드 ${settings.bands.length}개`
+    `[score] 설정 로드 완료: 모드=${settings.mode}, ${settings.startLabel || '(전체)'} ~ ${settings.endLabel || '(전체)'}, cap=${settings.cap}, 대상 밴드 ${settings.bands.length}개`
   );
 
   const { professorUserNos, taUserNos } = config.roles;

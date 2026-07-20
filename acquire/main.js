@@ -48,7 +48,8 @@ async function run() {
 
   let settings;
   try {
-    settings = await settingsLib.loadSettings({ inputDir: paths.input });
+    const mode = settingsLib.resolveMode();
+    settings = await settingsLib.loadSettings({ inputDir: paths.input, mode });
   } catch (err) {
     if (err instanceof settingsLib.SettingsNotReadyError || err instanceof settingsLib.SettingsValidationError) {
       logger.error(err.message);
