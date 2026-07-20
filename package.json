@@ -6,7 +6,8 @@
   "main": "acquire/main.js",
   "scripts": {
     "start": "electron .",
-    "acquire": "electron ."
+    "acquire": "electron .",
+    "test": "node --test 'score/*.test.js' 'lib/*.test.js'"
   },
   "dependencies": {
     "exceljs": "^4.4.0"
