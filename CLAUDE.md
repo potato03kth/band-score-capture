@@ -21,22 +21,27 @@ fixes there were already tried and reverted.
 
 ## Start here for the next work session
 
-**`doc/next-session-prompt.md` is the literal next prompt to paste in.** As of
-2026-07-20 end of session, §27's blockers are fixed, plus two more bugs found
-via a combined 2-band (3분반+4분반) live test: `.btnNextPost` walking into an
-announcement instead of the next post (silently truncated the walk), and a
-`commentPage` double-emit bug (same class as §27-1's `postDetail` one) that
-was causing false-positive gap reports in `incomplete_gaps.json` — the raw
-ndjson itself was actually complete all along, since `writer.writeComment`
-persists unconditionally in the interceptor regardless of collector.js's
-consumption bookkeeping. See `doc/m1-live-findings.md` §28 for the full
-story (§28-9 announcement fix, §28-10 the double-emit/false-positive-gap
-finding). All fixes verified across 3 repeated live runs on both bands:
-0 duplicate event processing, `feedExhausted:true`, gap counts down to 3
-and 1 (from 12 and 4), member verification 57/57 and 56/56. M1 acquire's
-core data-accuracy verification is done. Changes are **committed**
-(commit `1041e82` plus the announcement/drain fixes) — verify with
-`git log` at session start.
+**`doc/next-session-prompt.md` is the literal next prompt to paste in.**
+M1 acquire's core data-accuracy verification finished on 2026-07-20 (see
+`doc/m1-live-findings.md` §27-28 for that history if you ever need to touch
+`acquire/` again — announcement-walk fix, comment-page double-emit /
+false-positive-gap fix, both verified across repeated live runs on both
+bands). M2 scoring (`score/*.js`, `lib/xlsx.js`, `lib/settings.js`) then got
+a first working version (commit `f537c58`).
+
+On 2026-07-21 a full input/output design review of that M2 pipeline against
+the professor-facing UX requirements happened (no live Electron run involved
+— pure code/doc review). It found real gaps between what the excel-based
+I/O is supposed to do and what the M2 code actually does, and produced an
+8-phase implementation plan to close them (test infra, mode-out-of-excel,
+expected-post-count field, per-student post/comment-count columns, zero-value
+highlighting, roster identity-hint columns, the incomplete-data
+excel-with-live-calculator + scoring gate, folder/file naming, and the
+lowest-priority score_logic.xlsx). Full plan is in `doc/next-session-prompt.md`
+and mirrored into `doc/PLAN.md` §H. **Start with Phase 0 (test
+infrastructure via Node's built-in `node:test`, scoped to `score/`+`lib/`
+only — never `acquire/`, which stays live-verified per the trust-tier rules
+below) before touching any of the other phases.**
 
 ## Working style — lessons paid for with real restarts, don't relearn them
 
