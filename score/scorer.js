@@ -16,9 +16,13 @@ function scoreActivities(activities, { cap }) {
   const results = new Map();
   for (const [userNo, entry] of byUser) {
     const activeDays = entry.dates.size;
+    const postCount = entry.records.filter((r) => r.kind === 'post').length;
+    const commentCount = entry.records.filter((r) => r.kind === 'comment').length;
     results.set(userNo, {
       userNo,
       activeDays,
+      postCount,
+      commentCount,
       score: Math.min(activeDays, cap),
       records: entry.records.sort((x, y) => x.createdAtMs - y.createdAtMs),
     });

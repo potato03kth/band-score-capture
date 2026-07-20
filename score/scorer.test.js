@@ -57,6 +57,26 @@ test('scoreActivities: records는 dateStr이 붙고 시간순 정렬된다', () 
   assert.equal(records[1].dateStr, '2026-06-29');
 });
 
+test('scoreActivities: 게시글/댓글 종류별로 postCount/commentCount를 센다', () => {
+  const activities = [
+    act(1, day1, { kind: 'post' }),
+    act(1, day1 + 1000, { kind: 'post' }),
+    act(1, day2, { kind: 'comment' }),
+    act(1, day3, { kind: 'comment' }),
+    act(1, day3 + 1000, { kind: 'comment' }),
+  ];
+  const results = scorer.scoreActivities(activities, { cap: 50 });
+  assert.equal(results.get(1).postCount, 2);
+  assert.equal(results.get(1).commentCount, 3);
+});
+
+test('scoreActivities: 활동이 없는 종류는 0으로 집계된다', () => {
+  const activities = [act(1, day1, { kind: 'post' })];
+  const results = scorer.scoreActivities(activities, { cap: 50 });
+  assert.equal(results.get(1).postCount, 1);
+  assert.equal(results.get(1).commentCount, 0);
+});
+
 test('scoreActivities: 빈 활동 목록은 빈 Map을 반환한다', () => {
   const results = scorer.scoreActivities([], { cap: 50 });
   assert.equal(results.size, 0);

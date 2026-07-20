@@ -592,17 +592,26 @@ band-score-capture/
 
 ### H-3. 구현 8단계 (Sonnet 1세션 실행 가능 크기로 분할, 순서대로 진행)
 
-- **Phase 0 — 테스트 인프라.** `package.json`에 `"test": "node --test score lib"` 추가. `score/`·`lib/` 기존 로직
-  (parser·rules·roster·scorer·csv·xlsx·settings)의 회귀 방지 베이스라인 테스트부터 작성. 합성 raw ndjson/엑셀 픽스처는
-  `fs.mkdtempSync`로 매 테스트 격리. 검증: `npm test` 전부 통과.
-- **Phase 1 — 실행모드 이전.** `lib/settings.js`(mode를 파라미터로), `lib/xlsx.js`(템플릿에서 행 삭제),
-  `acquire/main.js`+`score/index.js`(CLI arg/env 파싱, 기본 production). 검증: `--mode=test`/무옵션/잘못된 값 3케이스.
-- **Phase 2 — 예상 게시글수 입력 + 밴드요약 출력.** "대상밴드" 시트 컬럼 추가, `lib/settings.js` 빈칸 허용 파싱,
-  `score/csv.js`에 "밴드요약" 시트. 검증: 빈칸/값있음 케이스 + 실제 posts.size와 일치 확인.
-- **Phase 3 — 학생별 게시글수·댓글수 컬럼.** `score/scorer.js`에 postCount/commentCount 집계 추가,
-  `score/csv.js` COLUMN_DESCRIPTIONS 확장. 검증: 합성 활동으로 컬럼값=감사시트 원장 개수 일치.
-- **Phase 4 — 0값 하이라이트.** 결과 시트에서 점수·활동일수·게시글수·댓글수 0인 셀에 배경 스타일. 검증: 워크북을
-  다시 읽어 해당 셀 `fill` 세팅 확인.
+> 진행 현황(2026-07-21): Phase 0~3 완료·커밋됨(`1a09479`, `578858d`, `45319dc`, Phase 3는 이
+> 갱신과 함께 커밋됨 — 다음 세션은 **Phase 4**부터 시작). 각 완료 phase는 `npm test` 전체
+> 통과 상태로 남겨뒀다.
+
+- ~~**Phase 0 — 테스트 인프라.**~~ 완료. `package.json`에 `"test": "node --test score lib"` 추가.
+  `score/`·`lib/` 기존 로직(parser·rules·roster·scorer·csv·xlsx·settings) 회귀 방지 베이스라인
+  테스트 작성 완료.
+- ~~**Phase 1 — 실행모드 이전.**~~ 완료. `lib/settings.js`(mode를 파라미터로), `lib/xlsx.js`(템플릿에서
+  행 삭제), `acquire/main.js`+`score/index.js`(CLI arg/env 파싱, 기본 production) 반영됨.
+- ~~**Phase 2 — 예상 게시글수 입력 + 밴드요약 출력.**~~ 완료. "대상밴드" 시트 컬럼 추가,
+  `lib/settings.js` 빈칸 허용 파싱, `score/csv.js`에 "밴드요약" 시트, `score/index.js`가 실제
+  `posts.size`를 넘겨 대조하도록 연결됨. 테스트로 빈칸/값있음/0이하·비숫자 거부/캡처데이터없음
+  케이스 모두 커버.
+- ~~**Phase 3 — 학생별 게시글수·댓글수 컬럼.**~~ 완료. `score/scorer.js`가 `entry.records`를
+  `kind`별로 세어 `postCount`/`commentCount` 반환, `score/csv.js` COLUMN_DESCRIPTIONS에 "게시글수"·
+  "댓글수" 추가(활동일수 다음, 점수 앞). 테스트로 감사 원장(`_records`) 종류별 실제 건수와 일치함을
+  확인.
+- **Phase 4 — 0값 하이라이트 (다음 작업).** 결과 시트에서 점수·활동일수·게시글수·댓글수 0인 셀에
+  배경 스타일(`score/csv.js`의 `writeAuditWorkbook` 결과 시트 렌더링 부분, ExcelJS `cell.fill`).
+  검증: 워크북을 다시 읽어 해당 셀 `fill` 세팅 확인.
 - **Phase 5 — 로스터 최초/최신활동 표시.** `score/roster.js`가 parser 결과에서 user_no별 최초·최신 활동 계산,
   `lib/xlsx.js` 템플릿에 컬럼 추가. 검증: 다건/0건 유저 케이스.
 - **Phase 6 — 부적합 데이터 확인 엑셀 + 채점 게이트(5개 하위단계).**
