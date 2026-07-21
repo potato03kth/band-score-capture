@@ -3,16 +3,43 @@
   "version": "0.1.0",
   "description": "Naver Band class participation acquisition + scoring (M1: acquisition)",
   "private": true,
+  "author": "band-score-capture",
   "main": "acquire/main.js",
   "scripts": {
     "start": "electron .",
     "acquire": "electron .",
-    "test": "node --test 'score/*.test.js' 'lib/*.test.js'"
+    "test": "node --test 'score/*.test.js' 'lib/*.test.js'",
+    "dist": "electron-builder --win"
   },
   "dependencies": {
     "exceljs": "^4.4.0"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.bandscorecapture.app",
+    "productName": "밴드 성적 자동 채점기",
+    "directories": {
+      "output": "release/"
+    },
+    "files": [
+      "acquire/**",
+      "score/**",
+      "lib/**",
+      "config/**",
+      "node_modules/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
