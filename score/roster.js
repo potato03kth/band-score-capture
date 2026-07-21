@@ -119,7 +119,12 @@ function buildFinalMapping(candidates, filledMap) {
   const nameCounts = new Map();
   for (const c of candidates) nameCounts.set(c.name, (nameCounts.get(c.name) || 0) + 1);
 
-  const syntheticMap = assignSyntheticIds(candidates.map((c) => c.userNo).filter((n) => !filledMap.has(n)));
+  // 순번은 전체 후보 집합(candidates) 기준으로 매긴다 — 미기입자만 걸러내 순번을 매기면
+  // 로스터를 점진적으로 채워나갈 때마다(교수가 한 번에 몇 명씩 학번을 채움) 아직 안 채운
+  // 학생들의 TEST#### 순번이 재실행마다 밀려서 바뀐다(실측 확인된 버그 - NU5가 요구하는
+  // "재실행해도 같은 user_no는 항상 같은 합성 학번" 보장이 깨짐). 채워진 사람의 실제 학번이
+  // 우선 사용되므로 그 사람의 TEST#### 순번 슬롯은 그냥 안 쓰일 뿐이다(번호 조밀함보다 안정성 우선).
+  const syntheticMap = assignSyntheticIds(candidates.map((c) => c.userNo));
 
   const result = new Map(); // userNo -> { userNo, name, bandId, bandName, studentId, mappingStatus }
   for (const c of candidates) {
