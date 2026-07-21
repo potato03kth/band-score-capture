@@ -158,18 +158,93 @@ function collectGapSections(rawDir, bands) {
   return { totalPostCount, postComments, memberComments };
 }
 
-// 결손이 하나라도 있고 아직 확인 엑셀이 없으면 새로 만든다. 결손이 전혀 없으면 파일 자체를
+// 3개 섹션 각각의 "같은 결손"을 식별하는 키. incomplete_gaps.json/member_comment_counts는
+// acquire를 다시 돌릴 때마다 그 시점 기준으로 통째로 다시 쓰인다(writer.js 주석) — 즉 이
+// 엑셀의 원본 데이터 자체가 1_설정.xlsx/2_로스터.xlsx(교수가 한 번 정하면 안 바뀌어야 하는
+// 입력)와 달리 재수집마다 바뀔 수 있다. 그래서 "이미 파일 있으면 안 건드림" 관례를 그대로
+// 물려받으면 안 되고(재수집으로 새로 드러난 결손이 영영 확인 엑셀에 안 나타나 게이트가
+// 조용히 뚫리는 실측 버그로 확인됨), 매번 최신 섹션으로 다시 만들되 기존에 채운
+// manual_value/note만 아래 키로 이어받는다.
+function totalPostCountKey(r) {
+  return String(r.bandId);
+}
+function postCommentKey(r) {
+  return `${r.bandId}:${r.typeLabel}:${r.postNo}:${r.parentCommentId || ''}`;
+}
+function memberCommentKey(r) {
+  return `${r.bandId}:${r.userNo}`;
+}
+
+// 기존 확인 엑셀(있다면)에서 섹션별 { key -> {manualValue, note} }를 읽는다. 파일이 없으면 null.
+// 시트 구성이 손상되었으면 readGapsResolution과 동일하게 GapsValidationError(사람이 직접
+// 지우고 재생성하도록 안내) — 손상된 파일을 조용히 버리고 새로 만들면 그 안에 있었을지 모를
+// manual_value를 말없이 잃을 위험이 있어, 그건 허용하지 않는다.
+async function loadPriorConfirmations(filePath) {
+  if (!(await xlsx.fileExists(filePath))) return null;
+  const wb = await xlsx.readWorkbook(filePath);
+  const totalSheet = wb.getWorksheet('게시글총수');
+  const postSheet = wb.getWorksheet('게시글댓글');
+  const memberSheet = wb.getWorksheet('학생댓글');
+  if (!totalSheet || !postSheet || !memberSheet) {
+    throw new GapsValidationError(
+      `${filePath} 파일의 시트 구성이 손상되었습니다. "게시글총수"·"게시글댓글"·"학생댓글" 시트가 모두 있어야 합니다. 파일을 삭제한 뒤 다시 실행해 템플릿을 재생성하세요.`
+    );
+  }
+
+  const totalPostCount = new Map();
+  totalSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const bandId = String(xlsx.readCell(row.getCell(2)));
+    const manualValue = xlsx.readCell(row.getCell(8));
+    if (manualValue === '' || manualValue == null) return;
+    totalPostCount.set(bandId, { manualValue, note: xlsx.readCell(row.getCell(9)) });
+  });
+
+  const postComments = new Map();
+  postSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const key = `${xlsx.readCell(row.getCell(2))}:${xlsx.readCell(row.getCell(5))}:${xlsx.readCell(row.getCell(6))}:${xlsx.readCell(row.getCell(9)) || ''}`;
+    const manualValue = xlsx.readCell(row.getCell(14));
+    if (manualValue === '' || manualValue == null) return;
+    postComments.set(key, { manualValue, note: xlsx.readCell(row.getCell(15)) });
+  });
+
+  const memberComments = new Map();
+  memberSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    if (xlsx.readCell(row.getCell(1)) === '합계') return;
+    const key = `${xlsx.readCell(row.getCell(2))}:${xlsx.readCell(row.getCell(4))}`;
+    const manualValue = xlsx.readCell(row.getCell(8));
+    if (manualValue === '' || manualValue == null) return;
+    memberComments.set(key, { manualValue, note: xlsx.readCell(row.getCell(9)) });
+  });
+
+  return { totalPostCount, postComments, memberComments };
+}
+
+// 결손이 하나라도 있으면 최신 섹션으로 확인 엑셀을 (재)생성한다. 결손이 전혀 없으면 파일 자체를
 // 만들지 않는다 — "결손 없음"과 "결손 미해결"을 파일 존재 여부로 혼동하지 않기 위함(H-3 6-3
-// 주석 참고). 이미 파일이 있으면 덮어쓰지 않는다(교수가 채운 manual_value를 잃지 않기 위해 —
-// 1_설정.xlsx/2_로스터.xlsx와 동일한 관례).
+// 주석 참고). 예전에는 결손이 있었지만 지금은 다 해결돼 파일만 남아있는 경우, 빈 섹션으로
+// 갱신해 stale 미해결 행 때문에 게이트가 잘못 막지 않게 한다. 기존에 채운 manual_value/note는
+// loadPriorConfirmations로 이어받으므로 재생성해도 사람이 이미 확인한 내용은 잃지 않는다.
 async function ensureGapsWorkbook(inputDir, rawDir, bands) {
   const filePath = path.join(inputDir, GAPS_FILENAME);
   const sections = collectGapSections(rawDir, bands);
   const hasGaps = sections.totalPostCount.length + sections.postComments.length + sections.memberComments.length > 0;
-  if (!hasGaps) return { created: false, hasGaps: false, filePath };
-  if (await xlsx.fileExists(filePath)) return { created: false, hasGaps: true, filePath };
+
+  const prior = await loadPriorConfirmations(filePath);
+  if (prior) {
+    for (const r of sections.totalPostCount) Object.assign(r, prior.totalPostCount.get(totalPostCountKey(r)));
+    for (const r of sections.postComments) Object.assign(r, prior.postComments.get(postCommentKey(r)));
+    for (const r of sections.memberComments) Object.assign(r, prior.memberComments.get(memberCommentKey(r)));
+  }
+
+  if (!hasGaps) {
+    if (prior) await xlsx.createGapsTemplate(filePath, sections); // 예전엔 결손 있었음 - 빈 상태로 갱신
+    return { created: false, hasGaps: false, filePath };
+  }
   await xlsx.createGapsTemplate(filePath, sections);
-  return { created: true, hasGaps: true, filePath };
+  return { created: !prior, hasGaps: true, filePath };
 }
 
 // 워크북을 읽어 섹션별 manual_value가 전부 채워졌는지 판단한다. 파일이 없으면(=결손이 한 번도
@@ -329,6 +404,7 @@ module.exports = {
   loadBandGaps,
   loadMemberCommentComparison,
   collectGapSections,
+  loadPriorConfirmations,
   ensureGapsWorkbook,
   readGapsResolution,
   applyMemberCommentCorrections,

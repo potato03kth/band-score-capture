@@ -45,7 +45,16 @@ async function main() {
   // 새로 만들고 채점을 거부한다. 엑셀이 있는데 미해결(manual_value 미기입) 항목이 남아있어도
   // 마찬가지로 거부한다. 결손이 한 번도 기록된 적 없으면(파일 자체가 없음) 통과 — "결손 없음"과
   // "결손 미해결"을 혼동하지 않는다(H-3 6-3).
-  const gapsCheck = await gaps.ensureGapsWorkbook(paths.input, paths.raw, settings.bands);
+  let gapsCheck;
+  try {
+    gapsCheck = await gaps.ensureGapsWorkbook(paths.input, paths.raw, settings.bands);
+  } catch (e) {
+    if (e instanceof gaps.GapsValidationError) {
+      console.error(`[score] ${e.message}`);
+      process.exit(1);
+    }
+    throw e;
+  }
   if (gapsCheck.created) {
     console.error(
       `[score] 부적합 데이터 확인 엑셀이 없어 새로 만들었습니다: ${gapsCheck.filePath}\n노란 칸(manual_value)을 모두 채우고 저장한 뒤 프로그램을 다시 실행하세요.`
