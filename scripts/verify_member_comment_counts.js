@@ -7,8 +7,9 @@
 // 스크립트는 CSV 포맷팅만 담당한다.
 //
 // 사용법: node scripts/verify_member_comment_counts.js [bandId]
-// 출력: out/verify/member_comment_counts_<bandId>.csv (member_name, user_no, displayed_count,
-//   captured_count, diff)
+// 출력: out/verify/diag_member_comment_counts_<bandId>.csv (member_name, user_no,
+//   displayed_count, captured_count, diff) - 개발자/조교용 진단 CSV. diag_ 접두어를 붙인
+//   이유는 scripts/list_incomplete_gaps.js 상단 주석 참고(Phase 7).
 
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +19,7 @@ const ROOT = path.join(__dirname, '..');
 const bandId = process.argv[2] || '103239777';
 const rawDir = path.join(ROOT, 'data', 'raw');
 const outDir = path.join(ROOT, 'out', 'verify');
-const outFile = path.join(outDir, `member_comment_counts_${bandId}.csv`);
+const outFile = path.join(outDir, `diag_member_comment_counts_${bandId}.csv`);
 
 function main() {
   const data = gaps.loadMemberCommentComparison(rawDir, bandId);

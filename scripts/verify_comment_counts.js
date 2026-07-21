@@ -6,9 +6,10 @@
 //
 // 사용법: node scripts/verify_comment_counts.js [bandId]
 //   기본 bandId=103239777(3분반). data/raw/<bandId>/에서 모든 날짜 폴더를 읽는다.
-// 출력: out/verify/captured_comment_counts_<bandId>.csv (post_no, author, created_at_kst,
+// 출력: out/verify/diag_captured_comment_counts_<bandId>.csv (post_no, author, created_at_kst,
 //   band_comment_count, captured_top_level, captured_replies, captured_total, manual_count,
-//   diff) — manual_count/diff는 사용자가 직접 채워 넣을 빈 칸이다.
+//   diff) — manual_count/diff는 개발자/조교가 직접 채워 넣을 빈 칸이다(교수용 입력물이 아님 -
+//   diag_ 접두어 이유는 scripts/list_incomplete_gaps.js 상단 주석 참고, Phase 7).
 
 const fs = require('fs');
 const path = require('path');
@@ -17,7 +18,7 @@ const ROOT = path.join(__dirname, '..');
 const bandId = process.argv[2] || '103239777';
 const rawBandDir = path.join(ROOT, 'data', 'raw', String(bandId));
 const outDir = path.join(ROOT, 'out', 'verify');
-const outFile = path.join(outDir, `captured_comment_counts_${bandId}.csv`);
+const outFile = path.join(outDir, `diag_captured_comment_counts_${bandId}.csv`);
 
 function kstDateStr(ms) {
   const d = new Date(ms + 9 * 3600 * 1000);

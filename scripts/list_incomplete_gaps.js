@@ -10,7 +10,10 @@
 // 사용법: node scripts/list_incomplete_gaps.js [bandId]
 // 출력:
 //   1) 콘솔에 사람이 바로 읽을 체크리스트(글 URL 포함 - 클릭해서 바로 확인 가능), tier 낮은 순
-//   2) out/verify/manual_followup_<bandId>.csv - manual_value/note 빈 칸을 채워 수동 보정에 쓸 CSV
+//   2) out/verify/diag_gap_checklist_<bandId>.csv - 개발자/조교용 진단 CSV(교수용 입력물이
+//      아님 - 교수가 채우는 실제 입력물은 input/부적합_데이터_확인.xlsx, Phase 6). 파일명에
+//      diag_ 접두어를 붙인 이유: out/ 아래 다른 산출물(scores_*.csv 등)은 교수에게 그대로
+//      전달되는 결과물이라 이 파일도 같은 것으로 오인되기 쉬움(Phase 7, doc/PLAN.md §H-2).
 
 const fs = require('fs');
 const path = require('path');
@@ -20,7 +23,7 @@ const ROOT = path.join(__dirname, '..');
 const bandId = process.argv[2] || '103239777';
 const rawDir = path.join(ROOT, 'data', 'raw');
 const outDir = path.join(ROOT, 'out', 'verify');
-const outFile = path.join(outDir, `manual_followup_${bandId}.csv`);
+const outFile = path.join(outDir, `diag_gap_checklist_${bandId}.csv`);
 
 function describe(g) {
   const reasonText = gaps.reasonLabel(g.reason);

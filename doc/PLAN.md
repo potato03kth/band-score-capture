@@ -592,9 +592,21 @@ band-score-capture/
 
 ### H-3. 구현 8단계 (Sonnet 1세션 실행 가능 크기로 분할, 순서대로 진행)
 
-> 진행 현황(2026-07-21): Phase 0~6 완료·커밋됨(`1a09479`, `578858d`, `45319dc`, `eadd3ef`,
-> `4070393`, `5d2aea0`, Phase 6 커밋 — 다음 세션은 **Phase 7**부터 시작). 각 완료 phase는
-> `npm test` 전체 통과 상태로 남겨뒀다(현재 116건).
+> 진행 현황(2026-07-21): Phase 0~7 완료·커밋됨(`1a09479`, `578858d`, `45319dc`, `eadd3ef`,
+> `4070393`, `5d2aea0`, Phase 6 커밋, Phase 7 커밋 — 다음 세션은 **Phase 8**부터 시작하거나
+> 아래 "미해결 발견사항"부터 확인). 각 완료 phase는 `npm test` 전체 통과 상태로 남겨뒀다(현재 119건).
+>
+> **Phase 0~6 사후 검증(2026-07-21, 같은 세션) — 실기동 없이 합성 데이터로 M2 파이프라인
+> 전체를 실제로 여러 번 실행해 목적/동작을 재검증.** 단위테스트가 못 잡던 "재실행 간 상태
+> 변화" 버그 2건을 발견해 즉시 수정·회귀테스트 추가·재검증 완료:
+> 1. `score/roster.js` — 로스터를 나눠서 채울 때마다 미확정 학생의 TEST#### 임시 학번이
+>    재배정되던 버그(NU5 "재실행해도 같은 user_no는 같은 합성 학번" 위반). 순번을 전체 후보
+>    집합 기준으로 고정.
+> 2. `score/gaps.js`/`lib/xlsx.js`/`score/index.js` — `부적합_데이터_확인.xlsx`가 이미 있으면
+>    acquire 재수집으로 새로 드러난 결손이 게이트에 영영 반영 안 되던 버그(Phase 6 핵심 목적
+>    위반). 매 실행마다 최신 섹션으로 재생성하되 기존 manual_value/note는 식별키로 이어받는
+>    방식으로 해결(행 삽입·수식 범위 재계산 불필요 — 해소된 결손의 감사근거는 raw
+>    ndjson·감사 시트에 있지 그 자체가 감사원장이 아니므로 그냥 사라져도 무방하다는 판단).
 
 - ~~**Phase 0 — 테스트 인프라.**~~ 완료. `package.json`에 `"test": "node --test score lib"` 추가.
   `score/`·`lib/` 기존 로직(parser·rules·roster·scorer·csv·xlsx·settings) 회귀 방지 베이스라인
@@ -634,8 +646,15 @@ band-score-capture/
   중복 제거, 개발자 진단 도구로는 유지). 테스트: `lib/xlsx.test.js`(`createGapsTemplate` 3건),
   `score/gaps.test.js`(신규, 18건 — 로딩/섹션 변환/게이트 생성·판정/보정 적용/엔드투엔드 시나리오
   전부 커버). `npm test` 116건 전부 통과.
-- **Phase 7 — 파일명/폴더 정리(다음 작업).** `out/verify/*` 이름 명시화, 부적합 데이터 확인 엑셀
-  `input/`으로 이전(이미 `input/부적합_데이터_확인.xlsx`로 구현됨 — Phase 7에서는 `out/verify/*`
-  산출물 이름만 정리하면 됨). 검증: 이름만으로 용도 파악 가능한지 리뷰(자동화 불필요).
+- ~~**Phase 7 — 파일명/폴더 정리.**~~ 완료. `out/verify/*.csv` 세 산출물(`scripts/list_incomplete_gaps.js`,
+  `scripts/verify_member_comment_counts.js`, `scripts/verify_comment_counts.js`)에 `diag_` 접두어를
+  붙여 "개발자/조교용 진단 CSV, 교수용 입력물 아님"이 파일명만으로 드러나게 정리(각 스크립트 상단
+  주석에 근거 기록). 부적합 데이터 확인 엑셀은 이미 Phase 6에서 `input/`에 구현되어 추가 이전 불필요.
+  `input/`·`out/` 전체 리뷰 중 **파일명 정리보다 더 중요한 사실을 발견**: `input/3_멤버리스트_<밴드>.xlsx`와
+  이를 읽는 `lib/xlsx.js`의 `readMemberListExport`가 정의·단위테스트만 있을 뿐 `score/index.js`·
+  `score/roster.js` 등 실제 채점 파이프라인 어디에서도 호출되지 않는 죽은 코드로 확인됨(리더 판별은
+  이미 `get_members_of_band` API의 `role` 필드로 처리 중 — recon 완료 항목). 삭제할지, NU10이
+  언급한 "역할 자동추론 보완용 폴백"으로 실제 연결할지는 제품 결정이 필요해 보류(2026-07-21, 사용자
+  확인 대기).
 - **Phase 8 — `score_logic.xlsx` (최하위 우선순위).** 신규 템플릿 + `score/rules.js`/`scorer.js` 파라미터화. 검증:
   기본값일 때 Phase 0 베이스라인 테스트와 완전히 동일한 점수 나오는지 회귀 확인, 값 변경 시 정확히 반영되는지.
