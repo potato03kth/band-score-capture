@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { loadConfig } = require('../lib/config');
 const settingsLib = require('../lib/settings');
+const scoreLogicLib = require('../lib/scoreLogic');
 const parser = require('./parser');
 const rules = require('./rules');
 const roster = require('./roster');
@@ -40,6 +41,23 @@ async function main() {
   console.log(
     `[score] 설정 로드 완료: 모드=${settings.mode}, ${settings.startLabel || '(전체)'} ~ ${settings.endLabel || '(전체)'}, cap=${settings.cap}, 대상 밴드 ${settings.bands.length}개`
   );
+
+  // Phase 8: score_logic.xlsx(확장성 목적, 최하위 우선순위). 1_설정.xlsx와 달리 미기입/파일
+  // 없음을 막지 않는다 — 기본값이 이미 기존 하드코딩 규칙과 100% 동일한 동작이기 때문(파일
+  // 손상 시에만 중단).
+  let scoreLogic;
+  try {
+    scoreLogic = await scoreLogicLib.loadScoreLogic(paths.input);
+  } catch (e) {
+    if (e instanceof scoreLogicLib.ScoreLogicValidationError) {
+      console.error(`[score] ${e.message}`);
+      process.exit(1);
+    }
+    throw e;
+  }
+  if (scoreLogic.created) {
+    console.log(`[score] ${scoreLogicLib.SCORE_LOGIC_FILENAME}이 없어 기본값으로 새로 만들었습니다: ${scoreLogic.filePath}(전부 "변경불필요" - 기존 규칙과 동일하게 채점을 계속 진행합니다)`);
+  }
 
   // Phase 6 게이트: 부적합 데이터(게시글총수/게시글댓글/학생댓글)가 있는데 확인 엑셀이 없으면
   // 새로 만들고 채점을 거부한다. 엑셀이 있는데 미해결(manual_value 미기입) 항목이 남아있어도
@@ -131,23 +149,33 @@ async function main() {
     for (const a of activities) {
       if (leaderAndTaUserNos.has(a.userNo)) continue; // 규칙7: 교수·조교 본인 활동 제외
       if (!rules.inMeasureRange(a.createdAtMs, settings)) continue; // 규칙2: 측정기간
-      if (a.kind === 'comment') {
+      if (a.kind === 'comment' && !scoreLogic.includeAssignmentPosts) {
         const post = posts.get(a.postNo);
-        if (rules.isAssignmentPost(post, { professorUserNos, assignmentPrefixRegex })) continue; // 규칙4
+        if (rules.isAssignmentPost(post, { professorUserNos, assignmentPrefixRegex })) continue; // 규칙4(score_logic.xlsx의 과제글포함여부로 오버라이드 가능)
       }
       allActivities.push(a);
     }
   }
   console.log(`[score] 필터링 후 활동 레코드 ${allActivities.length}건(전체 ${settings.bands.length}개 밴드 합산)`);
 
-  // 3) 채점
-  const scoresBeforeGapCorrection = scorer.scoreActivities(allActivities, { cap: settings.cap });
+  // 3) 채점 (일자별 채점 공식은 score_logic.xlsx로 파라미터화됨 - Phase 8)
+  const scoresBeforeGapCorrection = scorer.scoreActivities(allActivities, {
+    cap: settings.cap,
+    dailyActivityCap: scoreLogic.dailyActivityCap,
+    dailyScoreCap: scoreLogic.dailyScoreCap,
+    postMultiplier: scoreLogic.postMultiplier,
+    commentMultiplier: scoreLogic.commentMultiplier,
+  });
 
   // Phase 6: 게이트를 통과한 학생댓글 보정치만 commentCount/activeDays에 반영한다(게시글총수/
   // 게시글댓글 보정은 특정 학생에게 귀속할 수 없어 점수에 반영하지 않음 - score/gaps.js 상단
-  // 주석 참고). 게시글총수 보정은 밴드요약 시트의 캡처된 게시글수에만 반영한다.
+  // 주석 참고). 게시글총수 보정은 밴드요약 시트의 캡처된 게시글수에만 반영한다. dailyScoreCap/
+  // commentMultiplier도 함께 넘겨야 score_logic.xlsx를 커스텀했을 때 보정치도 같은 공식으로
+  // 계산된다(안 넘기면 옛 기본값(1,1)으로 계산돼 커스텀 설정과 엇갈릴 수 있음).
   const scores = gaps.applyMemberCommentCorrections(scoresBeforeGapCorrection, gapsResolution.corrections.memberCommentDeltas, {
     cap: settings.cap,
+    dailyScoreCap: scoreLogic.dailyScoreCap,
+    commentMultiplier: scoreLogic.commentMultiplier,
   });
   const bandPostCountsFinal = gaps.applyBandPostCountOverrides(bandPostCounts, gapsResolution.corrections.bandPostCountOverrides);
 

@@ -356,7 +356,16 @@ function makeCorrectionRecord(delta) {
 // tier-2로 확인된 실제 활동을 완전히 무시해 0점 처리하는 쪽이 더 큰 오류다. 반대로 delta<0인
 // 경우(캡처가 과대측정)는 활동일수를 낮추지 않는다 — 어떤 특정 날짜/레코드가 잘못됐는지 알 수
 // 없는 상태에서 점수를 깎는 것은 근거 없는 불이익이 되기 때문(보수적 선택).
-function applyMemberCommentCorrections(scores, memberCommentDeltas, { cap }) {
+//
+// dailyScoreCap/commentMultiplier(기본 1,1 — score_logic.xlsx, Phase 8): 0→1 활동일수로
+// 끌어올릴 때 그 하루가 주는 점수는 "댓글 1건짜리 하루"의 점수(= min(commentMultiplier,
+// dailyScoreCap))로 계산해 scorer.js와 같은 공식을 쓴다. 이미 활동이 있던 학생(existing.
+// activeDays>0)은 activeDays를 안 바꾸므로 score도 그대로 둔다 — Phase 8 이전엔
+// `Math.min(activeDays,cap)`으로 다시 계산해도 항상 기존 score와 같았지만(day 하나=1점
+// 고정), 배수·일일점수상한이 커스텀되면 더 이상 그렇지 않으므로 activeDays로부터 score를
+// 재계산하지 않는다(정확한 날짜별 재계산은 델타 하나로는 불가능 - 보수적으로 손대지 않음).
+function applyMemberCommentCorrections(scores, memberCommentDeltas, { cap, dailyScoreCap = 1, commentMultiplier = 1 } = {}) {
+  const bumpScore = Math.min(commentMultiplier, dailyScoreCap);
   const result = new Map(scores);
   for (const [userNo, delta] of memberCommentDeltas) {
     if (!delta) continue;
@@ -364,12 +373,14 @@ function applyMemberCommentCorrections(scores, memberCommentDeltas, { cap }) {
     const record = makeCorrectionRecord(delta);
     if (existing) {
       const newCommentCount = Math.max(0, (existing.commentCount || 0) + delta);
-      const newActiveDays = delta > 0 && existing.activeDays === 0 ? 1 : existing.activeDays;
+      const bumps = delta > 0 && existing.activeDays === 0;
+      const newActiveDays = bumps ? 1 : existing.activeDays;
+      const newScore = bumps ? Math.min(existing.score + bumpScore, cap) : existing.score;
       result.set(userNo, {
         ...existing,
         commentCount: newCommentCount,
         activeDays: newActiveDays,
-        score: Math.min(newActiveDays, cap),
+        score: newScore,
         records: [...existing.records, record],
       });
     } else {
@@ -379,7 +390,7 @@ function applyMemberCommentCorrections(scores, memberCommentDeltas, { cap }) {
         activeDays: newActiveDays,
         postCount: 0,
         commentCount: Math.max(0, delta),
-        score: Math.min(newActiveDays, cap),
+        score: newActiveDays > 0 ? Math.min(bumpScore, cap) : 0,
         records: [record],
       });
     }
