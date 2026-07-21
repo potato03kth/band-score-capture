@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const { loadConfig } = require('../lib/config');
+const { resolveDataRoot } = require('../lib/paths');
 const settingsLib = require('../lib/settings');
 const scoreLogicLib = require('../lib/scoreLogic');
 const parser = require('./parser');
@@ -12,32 +13,31 @@ const scorer = require('./scorer');
 const csv = require('./csv');
 const gaps = require('./gaps');
 
-const ROOT = path.join(__dirname, '..');
-const CONFIG_PATH = path.join(ROOT, 'config', 'config.jsonc');
+const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.jsonc');
+
+class NoRawDataError extends Error {}
 
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
-async function main() {
-  const config = loadConfig(CONFIG_PATH);
-  const paths = {
-    input: path.join(ROOT, config.paths?.input || 'input'),
-    raw: path.join(ROOT, config.paths?.raw || 'data/raw'),
-    out: path.join(ROOT, config.paths?.out || 'out'),
+function defaultPaths(config) {
+  const root = resolveDataRoot();
+  return {
+    input: path.join(root, config.paths?.input || 'input'),
+    raw: path.join(root, config.paths?.raw || 'data/raw'),
+    out: path.join(root, config.paths?.out || 'out'),
   };
+}
 
-  let settings;
-  try {
-    const mode = settingsLib.resolveMode();
-    settings = await settingsLib.loadSettings({ inputDir: paths.input, mode });
-  } catch (e) {
-    if (e instanceof settingsLib.SettingsNotReadyError || e instanceof settingsLib.SettingsValidationError) {
-      console.error(`[score] ${e.message}`);
-      process.exit(1);
-    }
-    throw e;
-  }
+// paths/config를 미리 계산해 넘길 수도 있다(Electron에서 재사용할 때 resolveDataRoot()를 한 번만
+// 부를 수 있도록) — 안 넘기면 순수 CLI 실행처럼 스스로 계산한다.
+async function runScoring({ paths, config } = {}) {
+  config = config || loadConfig(CONFIG_PATH);
+  paths = paths || defaultPaths(config);
+
+  const mode = settingsLib.resolveMode();
+  const settings = await settingsLib.loadSettings({ inputDir: paths.input, mode });
   console.log(
     `[score] 설정 로드 완료: 모드=${settings.mode}, ${settings.startLabel || '(전체)'} ~ ${settings.endLabel || '(전체)'}, cap=${settings.cap}, 대상 밴드 ${settings.bands.length}개`
   );
@@ -45,16 +45,7 @@ async function main() {
   // Phase 8: score_logic.xlsx(확장성 목적, 최하위 우선순위). 1_설정.xlsx와 달리 미기입/파일
   // 없음을 막지 않는다 — 기본값이 이미 기존 하드코딩 규칙과 100% 동일한 동작이기 때문(파일
   // 손상 시에만 중단).
-  let scoreLogic;
-  try {
-    scoreLogic = await scoreLogicLib.loadScoreLogic(paths.input);
-  } catch (e) {
-    if (e instanceof scoreLogicLib.ScoreLogicValidationError) {
-      console.error(`[score] ${e.message}`);
-      process.exit(1);
-    }
-    throw e;
-  }
+  const scoreLogic = await scoreLogicLib.loadScoreLogic(paths.input);
   if (scoreLogic.created) {
     console.log(`[score] ${scoreLogicLib.SCORE_LOGIC_FILENAME}이 없어 기본값으로 새로 만들었습니다: ${scoreLogic.filePath}(전부 "변경불필요" - 기존 규칙과 동일하게 채점을 계속 진행합니다)`);
   }
@@ -63,41 +54,21 @@ async function main() {
   // 새로 만들고 채점을 거부한다. 엑셀이 있는데 미해결(manual_value 미기입) 항목이 남아있어도
   // 마찬가지로 거부한다. 결손이 한 번도 기록된 적 없으면(파일 자체가 없음) 통과 — "결손 없음"과
   // "결손 미해결"을 혼동하지 않는다(H-3 6-3).
-  let gapsCheck;
-  try {
-    gapsCheck = await gaps.ensureGapsWorkbook(paths.input, paths.raw, settings.bands);
-  } catch (e) {
-    if (e instanceof gaps.GapsValidationError) {
-      console.error(`[score] ${e.message}`);
-      process.exit(1);
-    }
-    throw e;
-  }
+  const gapsCheck = await gaps.ensureGapsWorkbook(paths.input, paths.raw, settings.bands);
   if (gapsCheck.created) {
-    console.error(
-      `[score] 부적합 데이터 확인 엑셀이 없어 새로 만들었습니다: ${gapsCheck.filePath}\n노란 칸(manual_value)을 모두 채우고 저장한 뒤 프로그램을 다시 실행하세요.`
+    throw new gaps.GapsValidationError(
+      `부적합 데이터 확인 엑셀이 없어 새로 만들었습니다: ${gapsCheck.filePath}\n노란 칸(manual_value)을 모두 채우고 저장한 뒤 프로그램을 다시 실행하세요.`
     );
-    process.exit(1);
   }
 
-  let gapsResolution;
-  try {
-    gapsResolution = await gaps.readGapsResolution(gapsCheck.filePath);
-  } catch (e) {
-    if (e instanceof gaps.GapsValidationError) {
-      console.error(`[score] ${e.message}`);
-      process.exit(1);
-    }
-    throw e;
-  }
+  const gapsResolution = await gaps.readGapsResolution(gapsCheck.filePath);
   if (!gapsResolution.resolved) {
     const detail = Object.entries(gapsResolution.bySection)
       .map(([name, { resolved, unresolved }]) => `${name} 미해결 ${unresolved}건(해결 ${resolved}건)`)
       .join(', ');
-    console.error(
-      `[score] 부적합 데이터 확인 엑셀에 미해결 항목이 ${gapsResolution.unresolvedCount}건 남아있습니다(${detail}). 모든 manual_value 칸을 채운 뒤 다시 실행하세요: ${gapsCheck.filePath}`
+    throw new gaps.GapsValidationError(
+      `부적합 데이터 확인 엑셀에 미해결 항목이 ${gapsResolution.unresolvedCount}건 남아있습니다(${detail}). 모든 manual_value 칸을 채운 뒤 다시 실행하세요: ${gapsCheck.filePath}`
     );
-    process.exit(1);
   }
   if (gapsCheck.hasGaps) {
     console.log(`[score] 부적합 데이터 확인 엑셀의 모든 항목이 해결됨(${gapsCheck.filePath}) - 보정치를 반영해 진행합니다.`);
@@ -109,10 +80,9 @@ async function main() {
   // 1) 후보 멤버(리더+조교 소거) 수집 → 로스터 매핑 확보(없으면 템플릿 생성, 막지 않음)
   const { candidates } = roster.collectCandidateMembers(paths.raw, settings.bands, { taUserNos });
   if (candidates.length === 0) {
-    console.error(
-      `[score] 채점 대상 멤버를 찾을 수 없습니다. data/raw/<bandId>/_members/ 에 멤버 스냅샷이 있는지 확인하세요(acquire를 먼저 실행해야 합니다).`
+    throw new NoRawDataError(
+      `채점 대상 멤버를 찾을 수 없습니다. data/raw/<bandId>/_members/ 에 멤버 스냅샷이 있는지 확인하세요(acquire를 먼저 실행해야 합니다).`
     );
-    process.exit(1);
   }
   const { filled } = await roster.loadRosterMapping(paths.input, candidates);
   const mapping = roster.buildFinalMapping(candidates, filled);
@@ -199,9 +169,15 @@ async function main() {
   if (unmatchedCount > 0) {
     console.log(`[score] 학번 미확정/동명이인 ${unmatchedCount}명 - ${unmatchedPath} 확인 필요.`);
   }
+
+  return { csvPath, xlsxPath, unmatchedPath, unmatchedCount, studentCount: rows.length };
 }
 
-main().catch((e) => {
-  console.error('[score] 실패:', e.stack || e.message);
-  process.exit(1);
-});
+module.exports = { runScoring, NoRawDataError };
+
+if (require.main === module) {
+  runScoring().catch((e) => {
+    console.error('[score] 실패:', e.stack || e.message);
+    process.exit(1);
+  });
+}

@@ -1,25 +1,66 @@
 const { app, BrowserWindow, dialog } = require('electron');
 const fs = require('fs');
+const dns = require('dns');
 const path = require('path');
 const { loadConfig } = require('../lib/config');
+const { resolveDataRoot } = require('../lib/paths');
 const settingsLib = require('../lib/settings');
+const scoreLogicLib = require('../lib/scoreLogic');
+const { runScoring, NoRawDataError } = require('../score');
+const { GapsValidationError } = require('../score/gaps');
 const { createWriter } = require('./writer');
 const { createInterceptor } = require('./capture/interceptor');
 const { attachCdpCapture } = require('./capture/cdp-capture');
 const { createTracer } = require('./capture/tracer');
 const collector = require('./collector');
 
-const ROOT = path.join(__dirname, '..');
-const CONFIG_PATH = path.join(ROOT, 'config', 'config.jsonc');
+const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.jsonc');
 
 function resolvePaths(config) {
+  const root = resolveDataRoot();
   const p = config.paths || {};
   return {
-    input: path.join(ROOT, p.input || 'input'),
-    raw: path.join(ROOT, p.raw || 'data/raw'),
-    out: path.join(ROOT, p.out || 'out'),
-    logs: path.join(ROOT, p.logs || 'logs'),
+    input: path.join(root, p.input || 'input'),
+    raw: path.join(root, p.raw || 'data/raw'),
+    out: path.join(root, p.out || 'out'),
+    logs: path.join(root, p.logs || 'logs'),
   };
+}
+
+function showFriendlyError(title, err) {
+  const knownTypes = [
+    settingsLib.SettingsNotReadyError,
+    settingsLib.SettingsValidationError,
+    scoreLogicLib.ScoreLogicValidationError,
+    GapsValidationError,
+    NoRawDataError,
+  ];
+  if (knownTypes.some((Type) => err instanceof Type)) {
+    dialog.showErrorBox(title, err.message);
+    return;
+  }
+  dialog.showErrorBox(
+    '예상치 못한 오류',
+    '아래 내용을 캡처해서 조교에게 전달해주세요:\n\n' + (err.stack || String(err))
+  );
+}
+
+function checkInternet(timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) {
+        done = true;
+        resolve(false);
+      }
+    }, timeoutMs);
+    dns.lookup('www.band.us', (err) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(!err);
+    });
+  });
 }
 
 function createLogger(logFile) {
@@ -41,6 +82,33 @@ function createLogger(logFile) {
   };
 }
 
+async function reportScoringResult({ config, paths, logger, bandFailures }) {
+  let result;
+  try {
+    result = await runScoring({ paths, config });
+  } catch (err) {
+    logger.error(`채점 실패: ${err.stack || err.message}`);
+    showFriendlyError('채점 실패', err);
+    return;
+  }
+
+  const lines = [
+    `학생 ${result.studentCount}명 채점 완료.`,
+    `결과 CSV: ${result.csvPath}`,
+    `감사 엑셀: ${result.xlsxPath}`,
+  ];
+  if (result.unmatchedCount > 0) {
+    lines.push(`학번 미확정/동명이인 ${result.unmatchedCount}명 - ${result.unmatchedPath} 확인 필요.`);
+  }
+  if (bandFailures.length > 0) {
+    lines.push('');
+    lines.push(`수집 중 오류가 발생한 밴드 ${bandFailures.length}개:`);
+    for (const f of bandFailures) lines.push(`- ${f.name}: ${f.message}`);
+  }
+  logger.log(`채점 완료: ${JSON.stringify(result)}`);
+  dialog.showMessageBox({ type: 'info', title: '채점 완료', message: lines.join('\n') });
+}
+
 async function run() {
   const config = loadConfig(CONFIG_PATH);
   const paths = resolvePaths(config);
@@ -53,7 +121,7 @@ async function run() {
   } catch (err) {
     if (err instanceof settingsLib.SettingsNotReadyError || err instanceof settingsLib.SettingsValidationError) {
       logger.error(err.message);
-      dialog.showErrorBox('설정 확인 필요', err.message);
+      showFriendlyError('설정 확인 필요', err);
       app.quit();
       return;
     }
@@ -65,6 +133,41 @@ async function run() {
       settings.endLabel || '(미지정)'
     }, cap=${settings.cap}, 대상 밴드 ${settings.bands.length}개`
   );
+
+  const choice = await dialog.showMessageBox({
+    type: 'question',
+    title: '실행 방식 선택',
+    message: '무엇을 하시겠습니까?',
+    buttons: ['데이터 수집 후 채점', '채점만 다시 실행', '취소'],
+    defaultId: 0,
+    cancelId: 2,
+  });
+
+  if (choice.response === 2) {
+    logger.log('사용자가 취소를 선택했습니다.');
+    app.quit();
+    return;
+  }
+
+  const bandFailures = [];
+
+  if (choice.response === 1) {
+    logger.log('"채점만 다시 실행" 선택 - 밴드 재수집 없이 기존 data/raw/로 바로 채점합니다.');
+    await reportScoringResult({ config, paths, logger, bandFailures });
+    app.quit();
+    return;
+  }
+
+  const online = await checkInternet();
+  if (!online) {
+    logger.error('인터넷 연결 확인 실패 (www.band.us DNS 조회 실패)');
+    dialog.showErrorBox(
+      '인터넷 연결 확인 필요',
+      '밴드에 연결할 수 없습니다. 인터넷 연결을 확인한 뒤 다시 실행하세요.'
+    );
+    app.quit();
+    return;
+  }
 
   const win = new BrowserWindow({
     width: 1200,
@@ -118,6 +221,7 @@ async function run() {
       await collector.runBandCollection({ win, interceptor, writer, band, settings, config, logger });
     } catch (err) {
       logger.error(`밴드 ${band.bandId} 수집 중 오류: ${err.stack || err.message}`);
+      bandFailures.push({ name: band.name, message: err.message });
       await interceptor.screenshot(`band-error-${band.bandId}`);
     } finally {
       const cdp = await cdpPromise;
@@ -130,11 +234,14 @@ async function run() {
   }
 
   logger.log('모든 밴드 수집 완료.');
+
+  await reportScoringResult({ config, paths, logger, bandFailures });
+  app.quit();
 }
 
 app.whenReady().then(() => {
   run().catch((err) => {
-    dialog.showErrorBox('실행 오류', err.stack || String(err));
+    showFriendlyError('실행 오류', err);
     app.quit();
   });
 });
