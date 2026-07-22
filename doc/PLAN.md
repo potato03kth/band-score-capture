@@ -843,9 +843,10 @@ M3 산출물(`out/결과_및_감사_2026-07-21T09-16-34-415Z.xlsx`)과 `data/raw
 계획 전문은 세션 로그 참고, 핵심 결정과 결과만 기록한다.
 
 **설계 결정**: NSIS 설치 프로그램(포터블 아님, `electron-builder`), 무서명(SmartScreen 경고는
-안내 문서로 대응), 사용자 데이터는 `내 문서\밴드 성적 자동 채점기\`로 고정(`lib/paths.js`
-`resolveDataRoot()`), 수집/채점은 앱 실행 시 네이티브 3지선다 대화상자(`데이터 수집 후 채점 /
-채점만 다시 실행 / 취소`)로 하나의 Electron 진입점에 통합.
+안내 문서로 대응), 사용자 데이터는 exe 위치와 무관한 고정 폴더에 저장(`lib/paths.js`
+`resolveDataRoot()` — 최초엔 "내 문서"였다가 §M에서 `%APPDATA%`로 변경됨, 이유는 §M 참고),
+수집/채점은 앱 실행 시 네이티브 3지선다 대화상자(`데이터 수집 후 채점 / 채점만 다시 실행 /
+취소`)로 하나의 Electron 진입점에 통합.
 
 **구현**: PR #1(`feat/windows-packaging`)로 병합 완료(커밋 `19c5a8b`). 변경 파일:
 `lib/paths.js`(신규), `acquire/main.js`(선택 대화상자·`showFriendlyError`·인터넷 체크·밴드
@@ -908,3 +909,39 @@ M5 세션 도중 사용자가 긴급 요청: 학생이 과제글(교수 [과제n
 **검증**: 기존 136건 + 신규 10건 = 146건 단위테스트 전부 통과. 실데이터 라이브 재검증은 안 함
 (§K에서 이미 라이브 검증 완료된 파이프라인에 로직만 추가된 것이라 별도 재기동 안 함 — 필요하면
 다음 실제 채점 실행 때 자연히 검증됨).
+
+---
+
+## M. GitHub Release 업로드 + OneDrive 동기화로 인한 심각한 속도 저하 발견·수정 (2026-07-22)
+
+§L 이후 사용자가 v0.1.0 설치 파일을 GitHub Release에 업로드(레포 이미 public,
+`gh release create`로 진행). 업로드 직후 사용자가 배포판으로 1분반(`103239737`)·2분반
+(`103239767`) 실데이터 수집을 테스트하다가 심각한 성능 저하를 보고: 게시글 모달 스크롤이
+거의 안 움직이고(1스트로크당 ~5px), 밴드당 처리 속도가 기존 대비 4배 느려졌으며, 1분반은
+멤버 목록 확인 자체가 실패함.
+
+**원인 진단**: `lib/paths.js`의 `resolveDataRoot()`가 사용자 데이터를
+`app.getPath('documents')`(교수 PC의 "내 문서")에 저장하도록 되어 있었는데, 이 사용자의
+실제 "내 문서"는 대학 계정(Chonnam National University)의 **OneDrive 동기화 폴더로
+리디렉션**돼 있었다(`OneDrive.Sync.Service.exe`가 백그라운드에서 실행 중, 트레이 아이콘은
+안 보였지만 로그(`AppData/Local/Microsoft/OneDrive/logs/`)로 최근 동기화 활동 확인됨).
+`data/raw/<bandId>/<날짜>/items.ndjson`처럼 수집 중 계속 append되는 파일들이 전부 이
+폴더 안에 있어서, 파일이 바뀔 때마다 OneDrive가 잠그고 동기화를 시도하며 디스크 I/O를
+방해 → 실제 로그(`logs/audit/run_....log`)에서 공지사항 "건너뛰기"(원래 수 초) 하나에
+2분 넘게 걸린 것으로 확인. 멤버 목록 캡처 실패도 URL 패턴 문제(`acquire/collector.js:1003`
+주석의 "recon 미확정 추정값")가 아니라, 같은 파일의 `waitForEvent(..., 15000, 'memberPage')`
+**15초 고정 타임아웃**을 이 지연 때문에 놓친 것으로 강하게 추정됨(3분반/4분반에선 같은
+URL 패턴으로 이미 성공한 전례가 있어 URL 자체는 맞음).
+
+**수정**: `lib/paths.js`의 `resolveDataRoot()`를 `app.getPath('documents')` →
+`app.getPath('appData')`(`%APPDATA%`)로 변경. AppData는 OneDrive의 "알려진 폴더 이동(KFM)"
+대상이 절대 아니므로(Desktop/Documents/Pictures만 해당) 이 문제에서 근본적으로 자유롭다.
+대학 관리 PC는 이런 정책이 흔할 수 있어 교수님 PC에서도 재발 위험이 있었을 사안 — 사후
+대응이 아니라 코드로 막음. `acquire/collector.js`의 15초 타임아웃 값 자체는 이번엔 손대지
+않음(근본 원인 제거로 자연히 해소될 가능성이 높고, CLAUDE.md 규칙상 collector.js는 꼭
+필요할 때만 신중히 건드림). `doc/professor-guide.md`의 경로 안내도 `%APPDATA%`로 갱신.
+
+**주의**: 오늘 OneDrive 폴더에 쌓인 1분반/2분반 테스트 데이터(`OneDrive\문서\밴드 성적
+자동 채점기\`)는 마이그레이션하지 않음 — 애초에 멤버 확인도 안 끝난 테스트용 미완성
+데이터라 다음 실행부터는 새 위치(`%APPDATA%`)에서 새로 시작. 아직 실제 검증 못 한 것:
+경로 변경 후 재빌드→재수집이 실제로 빨라지는지는 다음 라이브 실행에서 확인 필요.
