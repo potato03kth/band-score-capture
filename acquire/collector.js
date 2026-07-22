@@ -1233,6 +1233,11 @@ async function readOneMemberCommentCount(win, memberLink, { trace, logger } = {}
 // 바뀌는 게 이미 §27-3-1에서 확인됐으므로(사용자 지적: "여기서만 영어지 실사용은 한국어일
 // 것") 텍스트로 끝을 판별하지 않는다. 대신 scrollWindowToBottom과 동일한 검증된 방식으로
 // "스크롤해도 더 이상 행 수가 안 늘어남" = 끝에 도달했다고 판단한다(언어 무관).
+// 실기동 확인(2026-07-22): goBackToMemberList 직후 목록 컴포넌트가 리마운트되는 동안 count=0인
+// 채로 몇 번 폴링될 수 있는데, count===0에서 "3번 연속 그대로"를 곧바로 "끝"으로 오판하면(실제
+// 60명인 밴드가 4명에서, 57명인 밴드가 2명에서 잘못 종료됨) 멤버별 댓글 수 교차검증이 절반 이상
+// 누락된 채로 "완료"라고 잘못 보고한다. count=0(=아직 렌더링 시작도 안 했을 가능성)일 때는 더
+// 오래 기다리고, count>0으로 한 번이라도 올라간 뒤에는 기존처럼 빠르게 판단한다.
 async function ensureMemberRowCount(win, minCount, { trace, maxSteps = 60, deltaY = 1200, pauseMs = 350 } = {}) {
   let prevCount = -1;
   let stableStreak = 0;
@@ -1243,7 +1248,8 @@ async function ensureMemberRowCount(win, minCount, { trace, maxSteps = 60, delta
     if (count >= minCount) return { ok: true, count };
     if (count === prevCount) {
       stableStreak++;
-      if (stableStreak >= 3) return { ok: false, count, reason: 'list-end-reached' };
+      const stableThreshold = count === 0 ? 8 : 3;
+      if (stableStreak >= stableThreshold) return { ok: false, count, reason: 'list-end-reached' };
     } else {
       stableStreak = 0;
     }
