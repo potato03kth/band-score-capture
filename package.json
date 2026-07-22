@@ -1,6 +1,6 @@
 {
   "name": "band-score-capture",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Naver Band class participation acquisition + scoring (M1: acquisition)",
   "private": true,
   "author": "band-score-capture",
