@@ -309,7 +309,7 @@ async function getModalScrollState(win) {
 
 // 진짜 휠 스크롤을 한 스텝 내려보내고 결과 상태를 반환한다. `.moreComment`를 못 찾았을 때
 // 곧바로 "완결"로 단정하기 전에, 혹시 아직 렌더링 안 된 것뿐인지 확인하는 용도.
-async function scrollModalDownOnce(win, { deltaY = 1500, pauseMs = 150 } = {}) {
+async function scrollModalDownOnce(win, { deltaY = 1000, pauseMs = 125 } = {}) {
   const before = await getModalScrollState(win);
   if (!before) return { scrolled: false, reason: 'no-scroll-state' };
   await realScrollWheel(win, before.x, before.y, deltaY);
@@ -338,7 +338,7 @@ async function pollForLoadMoreTarget(win, { retries = 5, intervalMs = 300 } = {}
 // 끝난 뒤에도 아직 화면에 안 그려진(=렌더/네트워크 요청이 안 된) 답글이 남아있을 수 있다.
 // 모달을 진짜 스크롤로 끝까지 내려 밴드 자신이 필요한 요청을 스스로 쏘게 만든다 — 이 함수는
 // 뭘 캡처했는지 직접 확인하지 않는다(그건 이미 interceptor-writer 경로가 부수효과로 처리함).
-async function scrollThroughModal(win, { postNo, trace, maxSteps = 40, deltaY = 1500, pauseMs = 150 } = {}) {
+async function scrollThroughModal(win, { postNo, trace, maxSteps = 40, deltaY = 1000, pauseMs = 125 } = {}) {
   let prevScrollTop = -1;
   let stableStreak = 0;
   for (let step = 0; step < maxSteps; step++) {
@@ -350,6 +350,15 @@ async function scrollThroughModal(win, { postNo, trace, maxSteps = 40, deltaY = 
       if (stableStreak >= 2) break;
     } else {
       stableStreak = 0;
+    }
+    // 댓글 영역(clientHeight) 기준 남은 스크롤 거리가 한 스텝(deltaY) 안에 들어오면, 매 스텝마다
+    // 상태를 다시 읽고 판단할 필요 없이 한 번에 끝까지 내려보낸다 — 한 칸 가고 한 번 확인하고를
+    // 반복하는 낭비를 없앤다(2026-07-22, 사용자 지적).
+    const remaining = state.scrollHeight - state.clientHeight - state.scrollTop;
+    if (remaining <= deltaY) {
+      await realScrollWheel(win, state.x, state.y, deltaY);
+      await sleep(pauseMs);
+      break;
     }
     prevScrollTop = state.scrollTop;
     await realScrollWheel(win, state.x, state.y, deltaY);
