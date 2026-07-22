@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const { loadConfig } = require('../lib/config');
-const { resolveDataRoot } = require('../lib/paths');
+const { resolveRoots } = require('../lib/paths');
 const settingsLib = require('../lib/settings');
 const scoreLogicLib = require('../lib/scoreLogic');
 const parser = require('./parser');
@@ -22,15 +22,15 @@ function timestamp() {
 }
 
 function defaultPaths(config) {
-  const root = resolveDataRoot();
+  const { documentsRoot, appDataRoot } = resolveRoots();
   return {
-    input: path.join(root, config.paths?.input || 'input'),
-    raw: path.join(root, config.paths?.raw || 'data/raw'),
-    out: path.join(root, config.paths?.out || 'out'),
+    input: path.join(documentsRoot, config.paths?.input || 'input'),
+    out: path.join(documentsRoot, config.paths?.out || 'out'),
+    raw: path.join(appDataRoot, config.paths?.raw || 'data/raw'),
   };
 }
 
-// paths/config를 미리 계산해 넘길 수도 있다(Electron에서 재사용할 때 resolveDataRoot()를 한 번만
+// paths/config를 미리 계산해 넘길 수도 있다(Electron에서 재사용할 때 resolveRoots()를 한 번만
 // 부를 수 있도록) — 안 넘기면 순수 CLI 실행처럼 스스로 계산한다.
 async function runScoring({ paths, config } = {}) {
   config = config || loadConfig(CONFIG_PATH);

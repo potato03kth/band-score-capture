@@ -3,7 +3,7 @@ const fs = require('fs');
 const dns = require('dns');
 const path = require('path');
 const { loadConfig } = require('../lib/config');
-const { resolveDataRoot } = require('../lib/paths');
+const { resolveRoots } = require('../lib/paths');
 const settingsLib = require('../lib/settings');
 const scoreLogicLib = require('../lib/scoreLogic');
 const { runScoring, NoRawDataError } = require('../score');
@@ -17,13 +17,13 @@ const collector = require('./collector');
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.jsonc');
 
 function resolvePaths(config) {
-  const root = resolveDataRoot();
+  const { documentsRoot, appDataRoot } = resolveRoots();
   const p = config.paths || {};
   return {
-    input: path.join(root, p.input || 'input'),
-    raw: path.join(root, p.raw || 'data/raw'),
-    out: path.join(root, p.out || 'out'),
-    logs: path.join(root, p.logs || 'logs'),
+    input: path.join(documentsRoot, p.input || 'input'),
+    out: path.join(documentsRoot, p.out || 'out'),
+    raw: path.join(appDataRoot, p.raw || 'data/raw'),
+    logs: path.join(appDataRoot, p.logs || 'logs'),
   };
 }
 
