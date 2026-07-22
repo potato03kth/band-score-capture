@@ -4,9 +4,9 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const { applyYellow } = require('../lib/xlsx');
 
-// 교수가 결과를 훑어볼 때 0을 놓치지 않도록 강조하는 컬럼(활동일수·게시글수·댓글수·점수).
+// 교수가 결과를 훑어볼 때 0을 놓치지 않도록 강조하는 컬럼(활동일수·게시글수·댓글수·점수·과제제출수·과제점수).
 // "0이 문제"라는 판정이 아니라 단순 시각적 강조 목적 — 로직을 복잡하게 만들지 않는다.
-const ZERO_HIGHLIGHT_COLUMNS = ['활동일수', '게시글수', '댓글수', '점수'];
+const ZERO_HIGHLIGHT_COLUMNS = ['활동일수', '게시글수', '댓글수', '점수', '과제제출수', '과제점수'];
 
 function csvEscape(v) {
   const s = v == null ? '' : String(v);
@@ -23,7 +23,9 @@ const COLUMN_DESCRIPTIONS = [
   ['활동일수', '측정기간 중 게시글/댓글/대댓글을 1개 이상 작성한 날의 수(하루 최대 1)'],
   ['게시글수', '측정기간 중 작성한 게시글 수'],
   ['댓글수', '측정기간 중 작성한 댓글·대댓글 수(과제글에 달린 댓글은 채점 대상에서 제외되어 여기 포함되지 않음)'],
-  ['점수', 'min(활동일수, 총점상한)'],
+  ['점수', 'min(활동일수, 총점상한). 과제점수는 포함되지 않음(완전히 별도 컬럼)'],
+  ['과제제출수', '측정기간 중 댓글을 단 과제글(교수 [과제n] 게시글)의 개수(같은 과제글에 여러 번 달아도 1개)'],
+  ['과제점수', 'min(과제제출수 × 과제글당점수, 과제점수상한). "점수" 컬럼과 합산되지 않는 별도 점수(score_logic.xlsx에서 조정 가능)'],
   ['매핑상태', 'matched(정상) / synthetic(임시 학번, 로스터 미기입) / ambiguous(동명이인, 확인 필요) / ambiguous-synthetic(동명이인+임시학번)'],
   ['수집완료여부', '해당 밴드 취득이 측정기간 전체를 빠짐없이 커버했는지(feedExhausted 기준)'],
   ['감사근거', '이 점수의 근거가 되는 활동 건수(감사 시트의 상세 근거로 이어짐)'],
@@ -52,10 +54,11 @@ function buildBandSummaryRows(bands, bandPostCounts) {
   });
 }
 
-function buildRows({ mapping, scores, cap, bandCollectionComplete, generatedAt }) {
+function buildRows({ mapping, scores, assignmentScores = new Map(), cap, bandCollectionComplete, generatedAt }) {
   const rows = [];
   for (const [userNo, m] of mapping) {
     const s = scores.get(userNo);
+    const as = assignmentScores.get(userNo);
     const activeDays = s ? s.activeDays : 0;
     const score = s ? s.score : 0;
     rows.push({
@@ -68,11 +71,14 @@ function buildRows({ mapping, scores, cap, bandCollectionComplete, generatedAt }
       게시글수: s ? s.postCount : 0,
       댓글수: s ? s.commentCount : 0,
       점수: score,
+      과제제출수: as ? as.assignmentPostCount : 0,
+      과제점수: as ? as.assignmentScore : 0,
       매핑상태: m.mappingStatus,
       수집완료여부: bandCollectionComplete.get(m.bandId) ? '완료' : '미완료(확인 필요)',
       감사근거: s ? `${s.records.length}건 활동` : '활동 없음',
       산출시각: generatedAt,
       _records: s ? s.records : [],
+      _assignmentRecords: as ? as.records : [],
     });
   }
   rows.sort((a, b) => (a.band_name === b.band_name ? b.점수 - a.점수 : a.band_name.localeCompare(b.band_name)));
@@ -142,6 +148,17 @@ async function writeAuditWorkbook(filePath, rows, bandSummaryRows = []) {
         bandName: r.band_name,
         dateStr: rec.dateStr,
         kind: rec.kind === 'post' ? '게시글' : '댓글',
+        postNo: rec.postNo,
+        textPreview: rec.textPreview,
+      });
+    }
+    for (const rec of r._assignmentRecords || []) {
+      auditSheet.addRow({
+        studentId: r.학번,
+        name: r.실명,
+        bandName: r.band_name,
+        dateStr: rec.dateStr,
+        kind: '과제제출',
         postNo: rec.postNo,
         textPreview: rec.textPreview,
       });

@@ -52,4 +52,30 @@ function scoreActivities(
   return results;
 }
 
-module.exports = { scoreActivities };
+// activities: 과제글(교수 [과제n] 게시글)에 달린 학생 댓글만 골라 넘긴다(score/index.js가 필터링).
+// 같은 과제글에 여러 번 댓글을 달아도 그 과제글 1개로만 친다(중복 제출 방지) — records에는
+// 감사용으로 원본 댓글을 전부 남긴다.
+// 반환: Map<userNo, { assignmentPostCount, assignmentScore, records:[...] }>
+function scoreAssignments(activities, { assignmentPostScore = 5, assignmentScoreCap = 20 } = {}) {
+  const byUser = new Map();
+  for (const a of activities) {
+    if (!byUser.has(a.userNo)) byUser.set(a.userNo, { postNos: new Set(), records: [] });
+    const entry = byUser.get(a.userNo);
+    entry.postNos.add(a.postNo);
+    entry.records.push({ ...a, dateStr: rules.kstDateStr(a.createdAtMs) });
+  }
+
+  const results = new Map();
+  for (const [userNo, entry] of byUser) {
+    const assignmentPostCount = entry.postNos.size;
+    results.set(userNo, {
+      userNo,
+      assignmentPostCount,
+      assignmentScore: Math.min(assignmentPostCount * assignmentPostScore, assignmentScoreCap),
+      records: entry.records.sort((x, y) => x.createdAtMs - y.createdAtMs),
+    });
+  }
+  return results;
+}
+
+module.exports = { scoreActivities, scoreAssignments };

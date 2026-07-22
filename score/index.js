@@ -102,6 +102,7 @@ async function runScoring({ paths, config } = {}) {
   }
 
   const allActivities = [];
+  const assignmentSubmissions = []; // 과제글에 달린 학생 댓글(활동점수와 별도로 과제점수만 채점)
   const bandCollectionComplete = new Map();
   const bandPostCounts = new Map();
   for (const band of settings.bands) {
@@ -119,9 +120,12 @@ async function runScoring({ paths, config } = {}) {
     for (const a of activities) {
       if (leaderAndTaUserNos.has(a.userNo)) continue; // 규칙7: 교수·조교 본인 활동 제외
       if (!rules.inMeasureRange(a.createdAtMs, settings)) continue; // 규칙2: 측정기간
-      if (a.kind === 'comment' && !scoreLogic.includeAssignmentPosts) {
+      if (a.kind === 'comment') {
         const post = posts.get(a.postNo);
-        if (rules.isAssignmentPost(post, { professorUserNos, assignmentPrefixRegex })) continue; // 규칙4(score_logic.xlsx의 과제글포함여부로 오버라이드 가능)
+        if (rules.isAssignmentPost(post, { professorUserNos, assignmentPrefixRegex })) {
+          assignmentSubmissions.push(a); // 과제글 제출은 활동점수 포함 여부와 무관하게 항상 과제점수로 집계
+          if (!scoreLogic.includeAssignmentPosts) continue; // 규칙4(score_logic.xlsx의 과제글포함여부로 오버라이드 가능) — 활동점수는 기존과 동일하게 제외
+        }
       }
       allActivities.push(a);
     }
@@ -135,6 +139,12 @@ async function runScoring({ paths, config } = {}) {
     dailyScoreCap: scoreLogic.dailyScoreCap,
     postMultiplier: scoreLogic.postMultiplier,
     commentMultiplier: scoreLogic.commentMultiplier,
+  });
+  // 과제점수: 활동점수와 완전히 별도 컬럼으로만 합산(총점 "점수"에는 안 더함) — 과제글 1개당
+  // 과제글당점수(n)점, 과제점수상한(m)점까지.
+  const assignmentScores = scorer.scoreAssignments(assignmentSubmissions, {
+    assignmentPostScore: scoreLogic.assignmentPostScore,
+    assignmentScoreCap: scoreLogic.assignmentScoreCap,
   });
 
   // Phase 6: 게이트를 통과한 학생댓글 보정치만 commentCount/activeDays에 반영한다(게시글총수/
@@ -151,7 +161,7 @@ async function runScoring({ paths, config } = {}) {
 
   // 4) 산출
   const generatedAt = new Date().toISOString();
-  const rows = csv.buildRows({ mapping, scores, cap: settings.cap, bandCollectionComplete, generatedAt });
+  const rows = csv.buildRows({ mapping, scores, assignmentScores, cap: settings.cap, bandCollectionComplete, generatedAt });
   const bandSummaryRows = csv.buildBandSummaryRows(settings.bands, bandPostCountsFinal);
 
   const ts = timestamp();
