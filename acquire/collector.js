@@ -309,7 +309,7 @@ async function getModalScrollState(win) {
 
 // 진짜 휠 스크롤을 한 스텝 내려보내고 결과 상태를 반환한다. `.moreComment`를 못 찾았을 때
 // 곧바로 "완결"로 단정하기 전에, 혹시 아직 렌더링 안 된 것뿐인지 확인하는 용도.
-async function scrollModalDownOnce(win, { deltaY = 700, pauseMs = 400 } = {}) {
+async function scrollModalDownOnce(win, { deltaY = 1500, pauseMs = 150 } = {}) {
   const before = await getModalScrollState(win);
   if (!before) return { scrolled: false, reason: 'no-scroll-state' };
   await realScrollWheel(win, before.x, before.y, deltaY);
@@ -338,7 +338,7 @@ async function pollForLoadMoreTarget(win, { retries = 5, intervalMs = 300 } = {}
 // 끝난 뒤에도 아직 화면에 안 그려진(=렌더/네트워크 요청이 안 된) 답글이 남아있을 수 있다.
 // 모달을 진짜 스크롤로 끝까지 내려 밴드 자신이 필요한 요청을 스스로 쏘게 만든다 — 이 함수는
 // 뭘 캡처했는지 직접 확인하지 않는다(그건 이미 interceptor-writer 경로가 부수효과로 처리함).
-async function scrollThroughModal(win, { postNo, trace, maxSteps = 40, deltaY = 700, pauseMs = 450 } = {}) {
+async function scrollThroughModal(win, { postNo, trace, maxSteps = 40, deltaY = 1500, pauseMs = 150 } = {}) {
   let prevScrollTop = -1;
   let stableStreak = 0;
   for (let step = 0; step < maxSteps; step++) {
@@ -1383,10 +1383,11 @@ async function runBandCollection({ win, interceptor, writer, band, settings, con
   const members = await collectMembers(win, interceptor, band.bandId, { logger });
   if (members) writer.writeMembersSnapshot(members);
 
-  // 신뢰도 체계 2단계 교차검증 3번(멤버별 댓글 수) - 멤버 수만큼 클릭+스크롤을 반복해 비용이
-  // 크고 selector도 아직 실기동 미검증이라, 명시적으로 요청했을 때만(BSC_VERIFY_MEMBERS=1) 켠다.
-  if (process.env.BSC_VERIFY_MEMBERS === '1' && members && members.length > 0) {
-    logger.log('[collector] BSC_VERIFY_MEMBERS=1 - 멤버별 댓글 수 교차검증을 시작합니다(멤버 수만큼 시간이 걸립니다).');
+  // 신뢰도 체계 2단계 교차검증 3번(멤버별 댓글 수) - 게시글 누락/결손이 "누구의" 활동인지
+  // 특정하려면 이게 있어야 해서 기본으로 켠다(2026-07-22, 사용자 확정). 멤버 수만큼 클릭+스크롤을
+  // 반복해 비용이 크니, 끄고 싶으면 BSC_VERIFY_MEMBERS=0으로 명시적으로 꺼야 한다.
+  if (process.env.BSC_VERIFY_MEMBERS !== '0' && members && members.length > 0) {
+    logger.log('[collector] 멤버별 댓글 수 교차검증을 시작합니다(멤버 수만큼 시간이 걸립니다 — 끄려면 BSC_VERIFY_MEMBERS=0).');
     const memberUrl = `https://www.band.us/band/${band.bandId}/member`;
     try {
       await safeLoadURL(win, memberUrl, logger);
