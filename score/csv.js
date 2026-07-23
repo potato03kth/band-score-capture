@@ -92,7 +92,7 @@ function writeCsv(filePath, rows) {
     lines.push(header.map((col) => csvEscape(r[col])).join(','));
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf8');
+  fs.writeFileSync(filePath, '﻿' + lines.join('\n') + '\n', 'utf8');
 }
 
 async function writeAuditWorkbook(filePath, rows, bandSummaryRows = []) {
@@ -177,7 +177,7 @@ function writeUnmatchedCsv(filePath, rows) {
     lines.push([r.학번, r.실명, r.user_no, r.band_name, r.매핑상태].map(csvEscape).join(','));
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf8');
+  fs.writeFileSync(filePath, '﻿' + lines.join('\n') + '\n', 'utf8');
   return unmatched.length;
 }
 
